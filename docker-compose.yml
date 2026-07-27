@@ -1,0 +1,124 @@
+# BlackBox development stack.
+#
+#   docker compose up -d --build
+#
+# Services added in later phases (frontend, ai-service, nginx) are declared in
+# docker-compose.override.yml as they land.
+
+name: blackbox
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: blackbox-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-blackbox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-blackbox}
+      POSTGRES_DB: ${POSTGRES_DB:-blackbox}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_EXPOSED_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-blackbox} -d ${POSTGRES_DB:-blackbox}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [blackbox]
+
+  redis:
+    image: redis:7-alpine
+    container_name: blackbox-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_EXPOSED_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [blackbox]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: blackbox-backend
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_SERVER: db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks: [blackbox]
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: blackbox-worker
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_SERVER: db
+      REDIS_URL: redis://redis:6379/0
+      # Migrations and seeding are owned by the backend container.
+      RUN_MIGRATIONS: "false"
+      RUN_SEED: "false"
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO"]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      backend: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.worker.celery_app", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks: [blackbox]
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: blackbox-beat
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_SERVER: db
+      REDIS_URL: redis://redis:6379/0
+      RUN_MIGRATIONS: "false"
+      RUN_SEED: "false"
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=INFO"]
+    depends_on:
+      redis: { condition: service_healthy }
+      backend: { condition: service_started }
+    networks: [blackbox]
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  blackbox:
+    driver: bridge
