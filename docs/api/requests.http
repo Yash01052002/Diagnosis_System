@@ -1,0 +1,192 @@
+### BlackBox API — Phase 1 sample requests
+###
+### Works with the VS Code REST Client and JetBrains HTTP Client.
+### Run top to bottom: the login request captures tokens into variables that
+### the later requests reuse.
+
+@host = http://localhost:8000
+@api = {{host}}/api/v1
+@adminEmail = admin@blackbox.example.com
+@adminPassword = ChangeMe123!
+
+
+### ─────────────────────────────────────────────────────────────
+### Health
+### ─────────────────────────────────────────────────────────────
+
+### Liveness probe
+GET {{host}}/health
+
+### Readiness probe (checks PostgreSQL and Redis)
+GET {{host}}/health/ready
+
+### OpenAPI schema
+GET {{host}}/openapi.json
+
+
+### ─────────────────────────────────────────────────────────────
+### Authentication
+### ─────────────────────────────────────────────────────────────
+
+### Register a new account (gets the `viewer` role)
+POST {{api}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "engineer@example.com",
+  "password": "Str0ng!Passw0rd",
+  "full_name": "Field Engineer"
+}
+
+### Log in as the bootstrap administrator
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
+@accessToken = {{login.response.body.access_token}}
+@refreshToken = {{login.response.body.refresh_token}}
+
+### Current user profile
+GET {{api}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+### Rotate the refresh token (the old one is revoked)
+POST {{api}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refreshToken}}"
+}
+
+### Change your own password
+POST {{api}}/auth/change-password
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "current_password": "{{adminPassword}}",
+  "new_password": "N3w!Str0ngPass"
+}
+
+### Request a password-reset email
+### With EMAIL_BACKEND=console the link is printed in the backend logs.
+POST {{api}}/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "engineer@example.com"
+}
+
+### Complete the password reset (paste the token from the emailed link)
+POST {{api}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "PASTE_TOKEN_FROM_EMAIL_LINK",
+  "new_password": "N3w!Str0ngPass"
+}
+
+### Log out of the current session
+POST {{api}}/auth/logout
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refreshToken}}"
+}
+
+### Log out everywhere
+POST {{api}}/auth/logout
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "all_sessions": true
+}
+
+
+### ─────────────────────────────────────────────────────────────
+### Users (admin only)
+### ─────────────────────────────────────────────────────────────
+
+### List users
+GET {{api}}/users?page=1&page_size=20
+Authorization: Bearer {{accessToken}}
+
+### Search by name or email, filtered by role
+GET {{api}}/users?q=engineer&role=engineer&is_active=true
+Authorization: Bearer {{accessToken}}
+
+### List assignable roles
+GET {{api}}/users/roles
+Authorization: Bearer {{accessToken}}
+
+### Create a user with an explicit role
+# @name createUser
+POST {{api}}/users
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "email": "engineer2@example.com",
+  "password": "Str0ng!Passw0rd",
+  "full_name": "Engineer Two",
+  "roles": ["engineer"],
+  "is_active": true,
+  "is_verified": true
+}
+
+@userId = {{createUser.response.body.id}}
+
+### Fetch a single user
+GET {{api}}/users/{{userId}}
+Authorization: Bearer {{accessToken}}
+
+### Promote a user to engineer
+PATCH {{api}}/users/{{userId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "roles": ["engineer"]
+}
+
+### Deactivate a user (revokes all of their sessions)
+PATCH {{api}}/users/{{userId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "is_active": false
+}
+
+### Update your own profile
+PATCH {{api}}/users/me
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "full_name": "Platform Administrator"
+}
+
+### Delete a user
+DELETE {{api}}/users/{{userId}}
+Authorization: Bearer {{accessToken}}
+
+
+### ─────────────────────────────────────────────────────────────
+### Audit trail (admin only)
+### ─────────────────────────────────────────────────────────────
+
+### Recent security events
+GET {{api}}/audit-logs?page=1&page_size=20
+Authorization: Bearer {{accessToken}}
+
+### Failed logins only
+GET {{api}}/audit-logs?action=user.login_failed
+Authorization: Bearer {{accessToken}}
