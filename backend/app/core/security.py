@@ -11,6 +11,7 @@ import hashlib
 import re
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -178,3 +179,56 @@ def hash_opaque_token(token: str) -> str:
 
 def constant_time_compare(a: str, b: str) -> bool:
     return secrets.compare_digest(a, b)
+
+
+# --------------------------------------------------------------------------
+# Device API keys
+# --------------------------------------------------------------------------
+#: Recognisable prefix so a leaked key can be spotted in logs and scanners.
+API_KEY_NAMESPACE = "bbx"
+API_KEY_PREFIX_BYTES = 6
+API_KEY_SECRET_BYTES = 32
+
+
+@dataclass(slots=True, frozen=True)
+class GeneratedApiKey:
+    """A newly minted device key. Only ``plaintext`` is ever shown to a user."""
+
+    plaintext: str
+    prefix: str
+    key_hash: str
+
+
+def generate_api_key() -> GeneratedApiKey:
+    """Mint a device API key of the form ``bbx_<prefix>_<secret>``.
+
+    The prefix is stored in the clear so a presented key can be located with an
+    indexed lookup; only the secret is hashed. Without it, verification would
+    have to hash the candidate against every stored key.
+    """
+    prefix = secrets.token_hex(API_KEY_PREFIX_BYTES)
+    secret = secrets.token_urlsafe(API_KEY_SECRET_BYTES)
+    plaintext = f"{API_KEY_NAMESPACE}_{prefix}_{secret}"
+    return GeneratedApiKey(plaintext=plaintext, prefix=prefix, key_hash=hash_opaque_token(secret))
+
+
+def split_api_key(candidate: str) -> tuple[str, str] | None:
+    """Split a presented key into ``(prefix, secret)``.
+
+    Returns ``None`` when the key is not in the expected shape, so callers can
+    reject malformed input without a database round trip.
+    """
+    parts = candidate.strip().split("_", 2)
+    if len(parts) != 3:
+        return None
+    namespace, prefix, secret = parts
+    if namespace != API_KEY_NAMESPACE or not prefix or not secret:
+        return None
+    if len(prefix) != API_KEY_PREFIX_BYTES * 2:
+        return None
+    return prefix, secret
+
+
+def verify_api_key(secret: str, stored_hash: str) -> bool:
+    """Constant-time check of an API key secret against its stored hash."""
+    return constant_time_compare(hash_opaque_token(secret), stored_hash)

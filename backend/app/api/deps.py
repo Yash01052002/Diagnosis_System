@@ -8,18 +8,26 @@ module rather than importing concrete implementations themselves.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import InactiveUserError, PermissionDeniedError, TokenError
 from app.core.security import TokenType, decode_token
 from app.db.session import get_db
+from app.models.device import Device
 from app.models.user import RoleName, User
 from app.repositories.audit_log import AuditLogRepository
+from app.repositories.crash import CrashReportRepository
+from app.repositories.device import (
+    DeviceApiKeyRepository,
+    DeviceRepository,
+    TagRepository,
+)
 from app.repositories.user import (
     PasswordResetTokenRepository,
     RefreshTokenRepository,
@@ -29,11 +37,18 @@ from app.repositories.user import (
 from app.schemas.common import PaginationParams
 from app.services.audit import AuditService
 from app.services.auth import AuthService, RequestContext
+from app.services.crash import CrashService
+from app.services.crash_parser import CrashParser, crash_parser
+from app.services.device import DeviceService
 from app.services.email import EmailSender, get_email_sender
 from app.services.user import UserService
 
 #: ``auto_error=False`` so a missing header raises our own 401 envelope.
 bearer_scheme = HTTPBearer(auto_error=False, description="JWT access token")
+
+#: Devices cannot perform an interactive login, so they present a long-lived
+#: key instead of a JWT.
+api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False, description="Device API key")
 
 SessionDep = Annotated[AsyncSession, Depends(get_db)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -77,6 +92,22 @@ def get_reset_token_repository(session: SessionDep) -> PasswordResetTokenReposit
 
 def get_audit_repository(session: SessionDep) -> AuditLogRepository:
     return AuditLogRepository(session)
+
+
+def get_device_repository(session: SessionDep) -> DeviceRepository:
+    return DeviceRepository(session)
+
+
+def get_tag_repository(session: SessionDep) -> TagRepository:
+    return TagRepository(session)
+
+
+def get_device_api_key_repository(session: SessionDep) -> DeviceApiKeyRepository:
+    return DeviceApiKeyRepository(session)
+
+
+def get_crash_repository(session: SessionDep) -> CrashReportRepository:
+    return CrashReportRepository(session)
 
 
 # ---------------------------------------------------------------------------
@@ -130,9 +161,46 @@ def get_user_service(
     )
 
 
+def get_crash_parser() -> CrashParser:
+    """The parser is stateless, so a single instance is shared."""
+    return crash_parser
+
+
+def get_device_service(
+    session: SessionDep,
+    devices: Annotated[DeviceRepository, Depends(get_device_repository)],
+    tags: Annotated[TagRepository, Depends(get_tag_repository)],
+    api_keys: Annotated[DeviceApiKeyRepository, Depends(get_device_api_key_repository)],
+    crashes: Annotated[CrashReportRepository, Depends(get_crash_repository)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+) -> DeviceService:
+    return DeviceService(
+        session=session,
+        devices=devices,
+        tags=tags,
+        api_keys=api_keys,
+        crashes=crashes,
+        audit=audit,
+    )
+
+
+def get_crash_service(
+    session: SessionDep,
+    crashes: Annotated[CrashReportRepository, Depends(get_crash_repository)],
+    devices: Annotated[DeviceRepository, Depends(get_device_repository)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+    parser: Annotated[CrashParser, Depends(get_crash_parser)],
+) -> CrashService:
+    return CrashService(
+        session=session, crashes=crashes, devices=devices, audit=audit, parser=parser
+    )
+
+
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 AuditServiceDep = Annotated[AuditService, Depends(get_audit_service)]
+DeviceServiceDep = Annotated[DeviceService, Depends(get_device_service)]
+CrashServiceDep = Annotated[CrashService, Depends(get_crash_service)]
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +261,61 @@ def require_roles(*roles: str) -> Callable[[User], User]:
         )
 
     return dependency
+
+
+async def get_current_device(
+    api_key: Annotated[str | None, Depends(api_key_scheme)],
+    service: Annotated[DeviceService, Depends(get_device_service)],
+) -> Device:
+    """Resolve the ``X-API-Key`` header to a registered device."""
+    if not api_key:
+        raise TokenError("Missing device API key.")
+    return await service.authenticate_api_key(api_key)
+
+
+CurrentDevice = Annotated[Device, Depends(get_current_device)]
+
+
+@dataclass(slots=True, frozen=True)
+class IngestPrincipal:
+    """Whoever submitted a crash report.
+
+    Exactly one of ``device`` / ``user`` is set: a device authenticated with
+    its API key, or an engineer submitting on its behalf with a JWT.
+    """
+
+    device: Device | None = None
+    user: User | None = None
+
+
+async def get_ingest_principal(
+    api_key: Annotated[str | None, Depends(api_key_scheme)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    device_service: Annotated[DeviceService, Depends(get_device_service)],
+    settings: SettingsDep,
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+) -> IngestPrincipal:
+    """Authenticate a crash submission by device key or engineer JWT.
+
+    The device key is checked first: it is the path firmware in the field
+    takes, and it identifies the device without trusting the payload.
+    """
+    if api_key:
+        return IngestPrincipal(device=await device_service.authenticate_api_key(api_key))
+
+    if credentials and credentials.credentials:
+        user = await get_current_user(credentials, settings, users)
+        if not (user.is_admin or user.has_role(RoleName.ENGINEER)):
+            raise PermissionDeniedError(
+                "Submitting crash reports requires a device API key or the engineer role.",
+                details={"required_roles": ["engineer"]},
+            )
+        return IngestPrincipal(user=user)
+
+    raise TokenError("Provide a device API key in X-API-Key, or an engineer bearer token.")
+
+
+IngestPrincipalDep = Annotated[IngestPrincipal, Depends(get_ingest_principal)]
 
 
 #: Common role guards.
