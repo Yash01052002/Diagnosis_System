@@ -73,10 +73,16 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         lazy="selectin",
     )
     refresh_tokens: Mapped[list[RefreshToken]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", lazy="noload"
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="noload",
+        passive_deletes=True,
     )
     password_reset_tokens: Mapped[list[PasswordResetToken]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", lazy="noload"
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="noload",
+        passive_deletes=True,
     )
 
     @property

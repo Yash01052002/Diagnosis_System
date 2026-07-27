@@ -14,7 +14,7 @@ app/
 │   └── v1/        versioned endpoints: auth, users, audit, health
 ├── core/          config, security, logging, exceptions, middleware
 ├── db/            engine, session, declarative base, seeding
-├── models/        SQLAlchemy 2.0 models
+├── models/        SQLAlchemy 2.0 models (users, devices, crashes, audit)
 ├── repositories/  all SQL — services never build queries
 ├── schemas/       Pydantic request/response contracts
 ├── services/      business rules and transaction boundaries
@@ -35,7 +35,7 @@ uv venv .venv && uv pip install --python .venv/bin/python -e ".[dev]"
 ## Quality gates
 
 ```bash
-.venv/bin/python -m pytest              # 76 tests, in-memory SQLite
+.venv/bin/python -m pytest              # 264 tests, in-memory SQLite
 .venv/bin/python -m pytest --cov=app --cov-report=term-missing
 .venv/bin/python -m ruff check app tests alembic
 .venv/bin/python -m ruff format --check app tests alembic
@@ -53,3 +53,10 @@ uv venv .venv && uv pip install --python .venv/bin/python -e ".[dev]"
   the API layer never builds an `HTTPException`.
 - **Configuration is injected.** Take `Settings` as an argument rather than
   importing the module-level singleton, so tests can override it.
+- **The parser is pure.** `app/services/crash_parser.py` has no database,
+  network or framework imports, so every normalisation rule is unit-testable
+  in isolation. Add new firmware dialects to `FIELD_ALIASES` there — the
+  submit schema derives its accepted field names from that same table.
+- **Foreign keys are enforced under SQLite too.** `enable_sqlite_foreign_keys`
+  is applied to every SQLite engine so `ON DELETE CASCADE` behaves as it does
+  on PostgreSQL.

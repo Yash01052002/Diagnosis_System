@@ -12,20 +12,20 @@ something an engineer can act on.**
 > The firmware side is a separate module. This repository is the web platform:
 > backend, AI service, frontend and deployment.
 
-[![Phase](https://img.shields.io/badge/phase-1%20of%206-blue)]()
-[![Tests](https://img.shields.io/badge/tests-76%20passing-brightgreen)]()
+[![Phase](https://img.shields.io/badge/phase-2%20of%206-blue)]()
+[![Tests](https://img.shields.io/badge/tests-264%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ---
 
-## Current status — Phase 1 complete
+## Current status — Phase 2 complete
 
 | Phase | Scope | Status |
 |---|---|---|
-| **1** | Foundation, authentication, RBAC, audit trail | ✅ **Complete** |
-| 2 | Devices & crash report API, crash parser | ⏳ Next |
-| 2.5 | Crash analysis engine (ELF/MAP, addr2line, signatures) | ⏸ Planned |
+| 1 | Foundation, authentication, RBAC, audit trail | ✅ Complete |
+| **2** | Devices & crash report API, crash parser | ✅ **Complete** |
+| 2.5 | Crash analysis engine (ELF/MAP, addr2line, signatures) | ⏳ Next |
 | 3 | AI diagnosis & RAG knowledge base | ⏸ Planned |
 | 4 | Frontend application | ⏸ Planned |
 | 5 | Dashboard, analytics, export, notifications | ⏸ Planned |
@@ -35,11 +35,31 @@ Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ### What works today
 
+**Authentication & access control**
 - Register, login, logout, refresh, forgot/reset password, change password
 - JWT access tokens with **rotating** refresh tokens and server-side revocation
 - Role-based access control: `admin`, `engineer`, `viewer`
 - User administration: create, search, filter, paginate, assign roles, delete
 - Account lockout after repeated failures; enumeration-resistant auth responses
+
+**Device fleet**
+- Register devices with serial, firmware, hardware model, owner, location, tags
+- Search and filter by status, model, firmware, tag, owner, last-seen
+- Per-device API keys so firmware can authenticate without an interactive login
+- Heartbeat check-in that reports firmware version and revives inactive devices
+- Per-device crash counters
+
+**Crash reports**
+- Ingestion endpoint for firmware, authenticated by device API key
+- Parser that normalises field aliases, hex/decimal addresses, ISO/epoch
+  timestamps, register and stack dumps across firmware dialects
+- Automatic fault classification and severity derivation
+- Duplicate suppression for retried uploads
+- Crash history with filtering by device, firmware, fault type, severity,
+  status, task and date range
+- Triage workflow that leaves the forensic record immutable
+
+**Platform**
 - Append-only audit trail with an admin query API
 - Liveness/readiness probes, structured JSON logs with request ids
 - PostgreSQL schema with Alembic migrations, Redis + Celery worker and beat
@@ -74,7 +94,8 @@ The backend follows clean architecture — **API → service → repository →
 model** — so business rules stay testable and the LLM provider, email
 transport and vector store are all swappable behind interfaces.
 
-Details: [`docs/architecture/phase-1.md`](docs/architecture/phase-1.md).
+Details: [`docs/architecture/phase-1.md`](docs/architecture/phase-1.md) and
+[`docs/architecture/phase-2.md`](docs/architecture/phase-2.md).
 
 ---
 
@@ -203,6 +224,31 @@ Base path `/api/v1`. Interactive docs at `/docs`.
 | DELETE | `/users/{id}` | admin | Delete |
 | PATCH | `/users/me` | any | Update your own profile |
 
+### Devices
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/devices` | viewer | List, search and filter the fleet |
+| POST | `/devices` | engineer | Register a device |
+| GET | `/devices/{id}` | viewer | Fetch one device |
+| PATCH | `/devices/{id}` | engineer | Update (identifiers are immutable) |
+| DELETE | `/devices/{id}` | admin | Delete, cascading to crash history |
+| GET | `/devices/{id}/stats` | viewer | Crash counters |
+| GET | `/devices/{id}/api-keys` | engineer | List key metadata |
+| POST | `/devices/{id}/api-keys` | engineer | Issue a key (shown once) |
+| DELETE | `/devices/{id}/api-keys/{key_id}` | engineer | Revoke a key |
+| POST | `/devices/heartbeat` | device key | Device check-in |
+
+### Crash reports
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/crashes` | device key or engineer | Submit a crash report |
+| GET | `/crashes` | viewer | Search crash history |
+| GET | `/crashes/{id}` | viewer | Full report with register/stack dumps |
+| PATCH | `/crashes/{id}` | engineer | Triage: status, severity, notes |
+| DELETE | `/crashes/{id}` | admin | Delete a report |
+
 ### Audit & health
 
 | Method | Path | Role | Description |
@@ -234,12 +280,22 @@ Every failure returns the same envelope:
 
 | Role | Can do |
 |---|---|
-| `admin` | Everything, including user management and the audit trail |
-| `engineer` | Manage devices, crash reports and diagnoses *(Phase 2+)* |
-| `viewer` | Read-only access to dashboards and crash history |
+| `admin` | Everything, including user management, deletion and the audit trail |
+| `engineer` | Register and edit devices, issue API keys, submit and triage crashes |
+| `viewer` | Read-only access to devices, crash history and dashboards |
 
 Admins implicitly satisfy every role check, so routes declare the minimum role
 they need.
+
+**Deletion is admin-only on purpose.** Deleting a device cascades to its entire
+crash history. Engineers who want a unit out of the way set its status to
+`decommissioned`, which also stops its API keys from working.
+
+**Devices authenticate with API keys, not JWTs.** Firmware cannot perform an
+interactive login, so each device gets a long-lived key
+(`bbx_<prefix>_<secret>`) presented in `X-API-Key`. Only the SHA-256 hash is
+stored; the plaintext is shown once at creation. The key identifies the device,
+so a device cannot file a crash against someone else's hardware.
 
 ---
 
@@ -271,16 +327,24 @@ cd backend && .venv/bin/python -m pytest tests/unit -v
 cd backend && .venv/bin/python -m pytest --cov=app --cov-report=html
 ```
 
-76 tests run against an in-memory SQLite database with the real schema, so no
+264 tests run against an in-memory SQLite database with the real schema, so no
 PostgreSQL server is needed:
 
-| Suite | Covers |
-|---|---|
-| `tests/unit/test_security.py` | bcrypt, JWT signing/expiry/tampering, opaque tokens |
-| `tests/unit/test_schemas.py` | Password policy, pagination arithmetic |
-| `tests/integration/test_auth_api.py` | Registration, login, lockout, rotation, reset, audit |
-| `tests/integration/test_users_api.py` | RBAC, search, role changes, self-service guards |
-| `tests/integration/test_health_api.py` | Probes, error envelope, middleware, OpenAPI |
+| Suite | Tests | Covers |
+|---|---|---|
+| `tests/unit/test_crash_parser.py` | 102 | Aliases, address/timestamp formats, fault classification, register and stack dumps, realistic firmware payloads |
+| `tests/unit/test_security.py` | 15 | bcrypt, JWT signing/expiry/tampering, opaque tokens |
+| `tests/unit/test_schemas.py` | 15 | Password policy, pagination arithmetic |
+| `tests/integration/test_devices_api.py` | 36 | Device CRUD, RBAC, tags, search, API keys, heartbeat |
+| `tests/integration/test_crashes_api.py` | 37 | Ingestion auth, parsing, duplicates, history, triage, cascade |
+| `tests/integration/test_auth_api.py` | 33 | Registration, login, lockout, rotation, reset, audit |
+| `tests/integration/test_users_api.py` | 17 | RBAC, search, role changes, self-service guards |
+| `tests/integration/test_health_api.py` | 9 | Probes, error envelope, middleware, OpenAPI |
+| `tests/integration/test_init_db.py` | 8 | Idempotent seeding, bootstrap admin validation |
+
+The suite enables `PRAGMA foreign_keys=ON` for SQLite so `ON DELETE CASCADE`
+behaves as it does on PostgreSQL — without it the tests would pass while the
+same delete orphaned rows in production.
 
 ### End-to-end smoke test
 
@@ -293,7 +357,7 @@ make smoke                                   # http://localhost:8000
 BASE_URL=https://staging.example.com ./scripts/smoke.sh
 ```
 
-It performs 27 HTTP checks and exits non-zero on the first mismatch. It creates
+It performs 53 HTTP checks and exits non-zero on the first mismatch. It creates
 and deletes users, so point it at development or staging, never production.
 
 Quality gates:

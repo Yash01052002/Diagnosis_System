@@ -190,3 +190,229 @@ Authorization: Bearer {{accessToken}}
 ### Failed logins only
 GET {{api}}/audit-logs?action=user.login_failed
 Authorization: Bearer {{accessToken}}
+
+
+### ─────────────────────────────────────────────────────────────
+### Devices (Phase 2)
+### ─────────────────────────────────────────────────────────────
+
+### Register a device (engineer)
+# @name createDevice
+POST {{api}}/devices
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "device_id": "STM32-F4-0001",
+  "serial_number": "SN-2026-000123",
+  "firmware_version": "1.4.2",
+  "hardware_model": "STM32F407VG",
+  "location": "Lab A, Rack 3",
+  "tags": ["field-trial", "eu-west"]
+}
+
+@deviceUuid = {{createDevice.response.body.id}}
+
+### List devices
+GET {{api}}/devices?page=1&page_size=20
+Authorization: Bearer {{accessToken}}
+
+### Search and filter
+GET {{api}}/devices?q=rack&status=active&hardware_model=STM32F407VG
+Authorization: Bearer {{accessToken}}
+
+### Filter by tag
+GET {{api}}/devices?tag=field-trial
+Authorization: Bearer {{accessToken}}
+
+### Get one device
+GET {{api}}/devices/{{deviceUuid}}
+Authorization: Bearer {{accessToken}}
+
+### Crash counters for a device
+GET {{api}}/devices/{{deviceUuid}}/stats
+Authorization: Bearer {{accessToken}}
+
+### Update a device (device_id and serial_number are immutable)
+PATCH {{api}}/devices/{{deviceUuid}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "firmware_version": "1.5.0",
+  "status": "maintenance",
+  "tags": ["field-trial", "eu-west", "batch-7"]
+}
+
+### Delete a device (admin only - cascades to its crash history)
+DELETE {{api}}/devices/{{deviceUuid}}
+Authorization: Bearer {{accessToken}}
+
+
+### ─────────────────────────────────────────────────────────────
+### Device API keys
+### ─────────────────────────────────────────────────────────────
+
+### Issue a key - the plaintext is returned ONCE
+# @name createKey
+POST {{api}}/devices/{{deviceUuid}}/api-keys
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "field-trial-fleet"
+}
+
+@deviceKey = {{createKey.response.body.api_key}}
+@keyId = {{createKey.response.body.id}}
+
+### List keys (metadata only)
+GET {{api}}/devices/{{deviceUuid}}/api-keys
+Authorization: Bearer {{accessToken}}
+
+### Revoke a key
+DELETE {{api}}/devices/{{deviceUuid}}/api-keys/{{keyId}}
+Authorization: Bearer {{accessToken}}
+
+### Device check-in (authenticated by the key alone)
+POST {{api}}/devices/heartbeat
+X-API-Key: {{deviceKey}}
+Content-Type: application/json
+
+{
+  "firmware_version": "1.5.0"
+}
+
+
+### ─────────────────────────────────────────────────────────────
+### Crash reports
+### ─────────────────────────────────────────────────────────────
+
+### Submit a crash - the firmware path
+# @name submitCrash
+POST {{api}}/crashes
+X-API-Key: {{deviceKey}}
+Content-Type: application/json
+
+{
+  "firmware_version": "1.4.2",
+  "build_version": "a1b2c3d",
+  "timestamp": "2026-07-27T09:14:22Z",
+  "fault_type": "HardFault",
+  "exception_type": "IMPRECISERR",
+  "task_name": "SensorTask",
+  "pc": "0x08001A2C",
+  "lr": "0x08001A0F",
+  "sp": "0x20017FA0",
+  "registers": {
+    "r0": "0x00000000",
+    "r1": "0x20000100",
+    "r2": "0xDEADBEEF",
+    "r3": "0x00000001",
+    "xpsr": "0x61000000",
+    "cfsr": "0x00000400",
+    "hfsr": "0x40000000"
+  },
+  "stack": ["0x08001A2C", "0x20017FB0", "0x08001998"]
+}
+
+@crashId = {{submitCrash.response.body.id}}
+
+### A camelCase firmware build - normalised identically
+POST {{api}}/crashes
+X-API-Key: {{deviceKey}}
+Content-Type: application/json
+
+{
+  "firmwareVersion": "2.0.0",
+  "faultType": "busFault",
+  "taskName": "CommsTask",
+  "programCounter": 134225964,
+  "stackDump": "08001A2C 20017FB0"
+}
+
+### A malformed report - stored anyway, with warnings
+POST {{api}}/crashes
+X-API-Key: {{deviceKey}}
+Content-Type: application/json
+
+{
+  "firmware_version": "1.5.0",
+  "fault_type": "???",
+  "timestamp": "whenever",
+  "pc": "junk"
+}
+
+### A stack overflow reported by FreeRTOS
+POST {{api}}/crashes
+X-API-Key: {{deviceKey}}
+Content-Type: application/json
+
+{
+  "firmware_version": "1.4.2",
+  "fault_type": "stack overflow",
+  "task_name": "LoggerTask",
+  "sp": "0x20018000"
+}
+
+### A watchdog reset - no registers at all, still a real crash
+POST {{api}}/crashes
+X-API-Key: {{deviceKey}}
+Content-Type: application/json
+
+{
+  "firmware_version": "1.4.2",
+  "reason": "IWDG timeout"
+}
+
+### Submit on a device's behalf (engineer JWT - device_id required)
+POST {{api}}/crashes
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "device_id": "STM32-F4-0001",
+  "firmware_version": "1.4.2",
+  "fault_type": "MemManage",
+  "task_name": "SensorTask",
+  "pc": "0x08003000"
+}
+
+### Search crash history
+GET {{api}}/crashes?page=1&page_size=20&sort=-occurred_at
+Authorization: Bearer {{accessToken}}
+
+### Filter by fault type and severity
+GET {{api}}/crashes?fault_type=hard_fault&severity=critical
+Authorization: Bearer {{accessToken}}
+
+### Filter by device and firmware version
+GET {{api}}/crashes?device=STM32-F4-0001&firmware_version=1.4.2
+Authorization: Bearer {{accessToken}}
+
+### Filter by triage status and task
+GET {{api}}/crashes?status=new&task_name=SensorTask
+Authorization: Bearer {{accessToken}}
+
+### Only crashes still awaiting an AI diagnosis (Phase 3)
+GET {{api}}/crashes?diagnosed=false
+Authorization: Bearer {{accessToken}}
+
+### Full report including register and stack dumps
+GET {{api}}/crashes/{{crashId}}
+Authorization: Bearer {{accessToken}}
+
+### Triage - only status, severity and notes may change
+PATCH {{api}}/crashes/{{crashId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "status": "investigating",
+  "severity": "high",
+  "notes": "DMA transfer races the ADC ISR; suspect a missing barrier."
+}
+
+### Delete a crash report (admin only)
+DELETE {{api}}/crashes/{{crashId}}
+Authorization: Bearer {{accessToken}}

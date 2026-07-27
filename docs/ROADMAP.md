@@ -6,8 +6,8 @@ sample requests and a Docker Compose stack that starts.
 | Phase | Title | Status |
 |---|---|---|
 | 1 | Foundation, Authentication & RBAC | ✅ Complete |
-| 2 | Devices & Crash Report API | ⏳ Next |
-| 2.5 | Crash Analysis Engine (ELF/MAP, symbolization) | ⏸ Planned |
+| 2 | Devices & Crash Report API | ✅ Complete |
+| 2.5 | Crash Analysis Engine (ELF/MAP, symbolization) | ⏳ Next |
 | 3 | AI Diagnosis & RAG Knowledge Base | ⏸ Planned |
 | 4 | Frontend Application | ⏸ Planned |
 | 5 | Dashboard, Analytics, Export & Notifications | ⏸ Planned |
@@ -25,33 +25,35 @@ Details: [`architecture/phase-1.md`](architecture/phase-1.md).
 
 ---
 
-## Phase 2 — Devices & Crash Report API
+## Phase 2 — Devices & Crash Report API ✅
 
-**Deliverables**
+**Delivered**
 
-- `devices` table: device id, serial number, firmware version, hardware model,
-  owner, last online, status, location, tags.
-- Device CRUD with search, filtering and pagination; `engineer` may write,
-  `viewer` may read.
-- `crash_reports` table with the full fault payload: fault type, task name, PC,
-  LR, SP, register dump, stack dump, exception type, build version, severity,
-  status, notes.
-- `POST /api/v1/crashes` — ingestion endpoint for firmware, authenticated with
-  a per-device API key rather than a user JWT.
-- `GET /crashes`, `GET /crashes/{id}`, `PATCH /crashes/{id}`,
-  `DELETE /crashes/{id}` with filtering by device, firmware, fault type, date.
-- Crash parser service: normalize field names and number formats, validate
-  register/stack dumps, derive severity, reject malformed payloads with a
-  precise error.
-- Celery ingestion pipeline so a device is never blocked by processing.
-- Device heartbeat / last-seen tracking.
+- `devices`, `tags`, `device_tags`, `device_api_keys` and `crash_reports`
+  tables with migration `0002`.
+- Device CRUD with search and filtering by status, model, firmware, tag, owner
+  and last-seen; `engineer` writes, `viewer` reads, `admin` deletes.
+- Per-device API keys (`bbx_<prefix>_<secret>`), hashed at rest, revocable,
+  optionally expiring — firmware cannot perform an interactive login.
+- `POST /api/v1/crashes` accepting either a device key or an engineer JWT.
+- Crash parser normalising field aliases, hex/decimal addresses, ISO-8601 and
+  epoch timestamps, register dumps and stack dumps; classifies fault type and
+  derives severity. Problems become warnings, not rejections.
+- Duplicate suppression for retried uploads.
+- Crash history with filters for device, firmware, build, fault type, severity,
+  status, task and date range, plus sorting and pagination.
+- Triage workflow (`status`, `severity`, `notes`) that leaves fault evidence
+  immutable.
+- Heartbeat endpoint and a Celery job that marks silent devices inactive.
+- `reparse_crash_report` task — reprocesses a stored `raw_payload`, the hook
+  Phase 2.5 extends.
+- 188 new tests (264 total).
 
-**Acceptance** — a simulated STM32 payload posted with a device key appears in
-`GET /crashes` with parsed, normalized fields.
+Details: [`architecture/phase-2.md`](architecture/phase-2.md).
 
 ---
 
-## Phase 2.5 — Crash Analysis Engine
+## Phase 2.5 — Crash Analysis Engine ⏳
 
 **Deliverables**
 

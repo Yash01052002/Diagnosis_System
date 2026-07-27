@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -13,6 +14,22 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import Settings, settings
+
+
+def enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
+    """Turn on foreign-key enforcement for SQLite connections.
+
+    SQLite ignores ``ON DELETE CASCADE`` unless the pragma is set per
+    connection. Without this, deleting a device would leave its crash reports
+    orphaned on SQLite while cascading correctly on PostgreSQL — exactly the
+    kind of divergence that makes a test suite lie about production.
+    """
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_pragma(dbapi_connection: Any, _record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 def create_engine(config: Settings | None = None) -> AsyncEngine:
@@ -32,7 +49,11 @@ def create_engine(config: Settings | None = None) -> AsyncEngine:
         kwargs["pool_size"] = cfg.DB_POOL_SIZE
         kwargs["max_overflow"] = cfg.DB_MAX_OVERFLOW
         kwargs["pool_recycle"] = 1800
-    return create_async_engine(url, **kwargs)
+
+    engine = create_async_engine(url, **kwargs)
+    if url.startswith("sqlite"):
+        enable_sqlite_foreign_keys(engine)
+    return engine
 
 
 engine: AsyncEngine = create_engine()

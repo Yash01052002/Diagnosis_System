@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from itertools import count
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -24,11 +27,23 @@ os.environ.setdefault("LOG_LEVEL", "WARNING")
 
 from app.api.deps import get_email_service  # noqa: E402
 from app.core.config import Settings, get_settings  # noqa: E402
-from app.core.security import hash_password  # noqa: E402
+from app.core.security import generate_api_key, hash_password  # noqa: E402
 from app.db.base import Base  # noqa: E402
-from app.db.session import get_db  # noqa: E402
+from app.db.session import enable_sqlite_foreign_keys, get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.models import Role, RoleName, User  # noqa: E402
+from app.models import (  # noqa: E402
+    CrashReport,
+    CrashSeverity,
+    CrashStatus,
+    Device,
+    DeviceApiKey,
+    DeviceStatus,
+    FaultType,
+    Role,
+    RoleName,
+    Tag,
+    User,
+)
 from app.services.email import InMemoryEmailSender  # noqa: E402
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -64,6 +79,9 @@ async def engine():  # type: ignore[no-untyped-def]
         poolclass=StaticPool,
         future=True,
     )
+    # Without this SQLite ignores ON DELETE CASCADE, and the suite would pass
+    # while the same delete orphaned rows on PostgreSQL.
+    enable_sqlite_foreign_keys(test_engine)
     async with test_engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     yield test_engine
@@ -199,3 +217,132 @@ async def auth_headers(login):  # type: ignore[no-untyped-def]
         return {"Authorization": f"Bearer {tokens['access_token']}"}
 
     return make_headers
+
+
+# ---------------------------------------------------------------------------
+# Device and crash factories
+# ---------------------------------------------------------------------------
+@pytest_asyncio.fixture
+async def device_factory(db_session: AsyncSession):  # type: ignore[no-untyped-def]
+    """Create devices directly, bypassing the API."""
+    counter = count(1)
+
+    async def create_device(
+        *,
+        device_id: str | None = None,
+        serial_number: str | None = None,
+        firmware_version: str = "1.4.2",
+        hardware_model: str = "STM32F407VG",
+        status: str = DeviceStatus.ACTIVE,
+        owner: User | None = None,
+        tags: list[str] | None = None,
+        location: str | None = None,
+        last_online_at: datetime | None = None,
+    ) -> Device:
+        index = next(counter)
+        device = Device(
+            device_id=device_id or f"STM32-F4-{index:04d}",
+            serial_number=serial_number or f"SN-TEST-{index:06d}",
+            firmware_version=firmware_version,
+            hardware_model=hardware_model,
+            status=status,
+            location=location,
+            owner_id=owner.id if owner else None,
+            last_online_at=last_online_at,
+        )
+        for name in tags or []:
+            normalized = Tag.normalize(name)
+            existing = (
+                (await db_session.execute(select(Tag).where(Tag.name == normalized)))
+                .scalars()
+                .first()
+            )
+            device.tags.append(existing or Tag(name=normalized))
+        db_session.add(device)
+        await db_session.commit()
+        await db_session.refresh(device, attribute_names=["tags"])
+        return device
+
+    return create_device
+
+
+@pytest_asyncio.fixture
+async def api_key_factory(db_session: AsyncSession):  # type: ignore[no-untyped-def]
+    """Issue a device API key, returning the plaintext for use in headers."""
+
+    async def create_key(
+        device: Device,
+        *,
+        name: str = "test-key",
+        expires_at: datetime | None = None,
+        revoked: bool = False,
+    ) -> str:
+        generated = generate_api_key()
+        key = DeviceApiKey(
+            device_id=device.id,
+            prefix=generated.prefix,
+            key_hash=generated.key_hash,
+            name=name,
+            expires_at=expires_at,
+            revoked_at=datetime.now(UTC) if revoked else None,
+        )
+        db_session.add(key)
+        await db_session.commit()
+        return generated.plaintext
+
+    return create_key
+
+
+@pytest_asyncio.fixture
+async def crash_factory(db_session: AsyncSession):  # type: ignore[no-untyped-def]
+    """Create crash reports directly, bypassing ingestion."""
+
+    async def create_crash(
+        device: Device,
+        *,
+        fault_type: str = FaultType.HARD_FAULT,
+        severity: str = CrashSeverity.CRITICAL,
+        status: str = CrashStatus.NEW,
+        firmware_version: str | None = None,
+        task_name: str = "SensorTask",
+        occurred_at: datetime | None = None,
+        program_counter: int | None = 0x08001A2C,
+        ai_diagnosis: str | None = None,
+    ) -> CrashReport:
+        when = occurred_at or datetime.now(UTC)
+        report = CrashReport(
+            device_id=device.id,
+            firmware_version=firmware_version or device.firmware_version,
+            occurred_at=when,
+            received_at=when,
+            fault_type=fault_type,
+            task_name=task_name,
+            program_counter=program_counter,
+            severity=severity,
+            status=status,
+            ai_diagnosis=ai_diagnosis,
+        )
+        db_session.add(report)
+        await db_session.commit()
+        await db_session.refresh(report)
+        return report
+
+    return create_crash
+
+
+def crash_payload(**overrides: object) -> dict[str, object]:
+    """A representative STM32 + FreeRTOS crash payload."""
+    payload: dict[str, object] = {
+        "firmware_version": "1.4.2",
+        "build_version": "a1b2c3d",
+        "timestamp": "2026-07-27T09:14:22Z",
+        "fault_type": "HardFault",
+        "task_name": "SensorTask",
+        "pc": "0x08001A2C",
+        "lr": "0x08001A0F",
+        "sp": "0x20017FA0",
+        "registers": {"r0": "0x00000000", "r1": "0x20000100", "xpsr": "0x61000000"},
+        "stack": ["0x08001A2C", "0x20017FB0"],
+    }
+    payload.update(overrides)
+    return payload

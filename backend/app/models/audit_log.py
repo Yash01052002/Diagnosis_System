@@ -28,6 +28,18 @@ class AuditAction(StrEnum):
     PASSWORD_RESET_COMPLETED = "auth.password_reset_completed"
     PASSWORD_CHANGED = "auth.password_changed"
 
+    DEVICE_CREATED = "device.created"
+    DEVICE_UPDATED = "device.updated"
+    DEVICE_DELETED = "device.deleted"
+    DEVICE_KEY_CREATED = "device.key_created"
+    DEVICE_KEY_REVOKED = "device.key_revoked"
+    DEVICE_KEY_REJECTED = "device.key_rejected"
+
+    CRASH_RECEIVED = "crash.received"
+    CRASH_REJECTED = "crash.rejected"
+    CRASH_UPDATED = "crash.updated"
+    CRASH_DELETED = "crash.deleted"
+
 
 class AuditLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """One row per security-relevant event.

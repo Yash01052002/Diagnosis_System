@@ -236,3 +236,243 @@ curl -s "http://localhost:8000/api/v1/audit-logs?action=user.login_failed" \
   "created_at": "2026-07-27T09:14:22Z"
 }
 ```
+
+---
+
+# Phase 2 — Devices & Crash Reports
+
+## 11. Register a device
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/devices \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{
+        "device_id": "STM32-F4-0001",
+        "serial_number": "SN-2026-000123",
+        "firmware_version": "1.4.2",
+        "hardware_model": "STM32F407VG",
+        "location": "Lab A, Rack 3",
+        "tags": ["field-trial", "eu-west"]
+      }' | jq
+```
+
+Requires `engineer`. `device_id` and `serial_number` are unique and immutable —
+every crash the device has ever sent references them, so a rename would rewrite
+history. Tags are normalised to lower case and de-duplicated.
+
+## 12. Search the fleet
+
+```bash
+curl -s "http://localhost:8000/api/v1/devices?q=rack%203" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/devices?status=active&hardware_model=STM32F407VG" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/devices?tag=field-trial" -H "Authorization: Bearer $ACCESS" | jq
+
+# Devices seen in the last 24 hours. Note the %2B: a raw "+" in a query
+# string decodes as a space.
+SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+curl -s "http://localhost:8000/api/v1/devices?online_since=$SINCE" -H "Authorization: Bearer $ACCESS" | jq
+```
+
+## 13. Issue a device API key
+
+```bash
+KEY=$(curl -s -X POST "http://localhost:8000/api/v1/devices/$DEVICE_UUID/api-keys" \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{"name": "field-trial-fleet"}' | jq -r .api_key)
+
+echo "$KEY"
+# bbx_43c2af624721_5WAeDsj...
+```
+
+The plaintext is returned **once**; only its SHA-256 hash is stored. Flash it to
+the device now — a lost key can be replaced, never recovered.
+
+```bash
+# List keys (metadata only, never the secret)
+curl -s "http://localhost:8000/api/v1/devices/$DEVICE_UUID/api-keys" -H "Authorization: Bearer $ACCESS" | jq
+
+# Revoke immediately and permanently
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+  "http://localhost:8000/api/v1/devices/$DEVICE_UUID/api-keys/$KEY_ID" -H "Authorization: Bearer $ACCESS"
+# 204
+```
+
+## 14. Device heartbeat
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/devices/heartbeat \
+  -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"firmware_version": "1.5.0"}' | jq
+```
+
+Authenticated by the key alone. A device may report its firmware version here,
+so an OTA update is reflected without anyone editing the record. A device that
+checks in while marked `inactive` is flipped back to `active`; a `maintenance`
+or `decommissioned` status is left alone, because that was an operator's
+decision.
+
+## 15. Submit a crash report
+
+This is the path firmware takes.
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/crashes \
+  -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{
+        "firmware_version": "1.4.2",
+        "build_version": "a1b2c3d",
+        "timestamp": "2026-07-27T09:14:22Z",
+        "fault_type": "HardFault",
+        "task_name": "SensorTask",
+        "pc": "0x08001A2C",
+        "lr": "0x08001A0F",
+        "sp": "0x20017FA0",
+        "registers": {
+          "r0": "0x00000000", "r1": "0x20000100", "r2": "0xDEADBEEF",
+          "xpsr": "0x61000000", "cfsr": "0x00000400"
+        },
+        "stack": ["0x08001A2C", "0x20017FB0", "0x08001998"]
+      }' | jq
+```
+
+```json
+{
+  "id": "3f1c...",
+  "status": "new",
+  "severity": "critical",
+  "fault_type": "hard_fault",
+  "received_at": "2026-07-27T09:14:25Z",
+  "warnings": []
+}
+```
+
+The key identifies the device, so `device_id` in the body is optional — and
+ignored. A device cannot file a crash against someone else's hardware.
+
+### The parser is deliberately forgiving
+
+A different firmware build sending camelCase and integers works identically:
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/crashes \
+  -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"firmwareVersion":"2.0.0","faultType":"busFault",
+       "taskName":"CommsTask","programCounter":134225964}' | jq .fault_type
+# "bus_fault"
+```
+
+A badly malformed report is still stored, with the problems reported:
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/crashes \
+  -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"firmware_version":"1.5.0","fault_type":"???",
+       "timestamp":"whenever","pc":"junk"}' | jq
+```
+
+```json
+{
+  "fault_type": "unknown",
+  "severity": "medium",
+  "warnings": [
+    "timestamp: could not interpret 'whenever', using time of receipt",
+    "fault_type: unrecognised value '???'",
+    "program_counter: could not interpret 'junk' as an address"
+  ]
+}
+```
+
+Only two things are refused: a report with no fault evidence at all (**422**),
+and a timestamp more than a day in the future (**422** — check the device
+clock).
+
+### Duplicate suppression
+
+A device that retries an upload it never saw acknowledged gets the same report
+back rather than creating a second row:
+
+```json
+{ "id": "3f1c...", "warnings": ["duplicate of a report received moments ago"] }
+```
+
+### Submitting on a device's behalf
+
+An `engineer` may submit with a bearer token, in which case `device_id` (or the
+serial number) is required:
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/crashes \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{"device_id":"STM32-F4-0001","firmware_version":"1.4.2","fault_type":"HardFault"}' | jq
+```
+
+An unregistered device gives **404** — register it first.
+
+## 16. Search crash history
+
+```bash
+curl -s "http://localhost:8000/api/v1/crashes?fault_type=hard_fault&severity=critical" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/crashes?device=STM32-F4-0001" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/crashes?firmware_version=1.4.2&status=new" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/crashes?task_name=SensorTask&sort=-occurred_at" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/crashes?q=dma" -H "Authorization: Bearer $ACCESS" | jq
+
+FROM=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+curl -s "http://localhost:8000/api/v1/crashes?occurred_from=$FROM" -H "Authorization: Bearer $ACCESS" | jq
+```
+
+List rows omit the register and stack dumps — a page of 50 crashes would
+otherwise ship megabytes of hex the table never renders. Fetch one report to
+see them:
+
+```bash
+curl -s "http://localhost:8000/api/v1/crashes/$CRASH_ID" -H "Authorization: Bearer $ACCESS" | jq
+```
+
+```json
+{
+  "program_counter": 134224428,
+  "register_dump": { "r0": 0, "r1": 536871168, "psr": 1627389952, "cfsr": 1024 },
+  "stack_dump": { "start_address": null, "words": [134224428, 537001904] },
+  "device": { "device_id": "STM32-F4-0001", "hardware_model": "STM32F407VG" }
+}
+```
+
+Addresses come back as integers. Format them as hex client-side:
+`(134224428).toString(16)` → `08001a2c`.
+
+## 17. Triage a crash
+
+```bash
+curl -s -X PATCH "http://localhost:8000/api/v1/crashes/$CRASH_ID" \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{"status":"investigating","severity":"high","notes":"DMA races the ADC ISR"}' | jq
+```
+
+Only `status`, `severity` and `notes` can change. Registers, addresses and
+dumps are immutable — they are the only account of what the device actually
+did. Fields sent for anything else are ignored, not rejected.
+
+Statuses: `new`, `triaged`, `investigating`, `resolved`, `ignored`, `duplicate`.
+
+## 18. Device crash counters
+
+```bash
+curl -s "http://localhost:8000/api/v1/devices/$DEVICE_UUID/stats" -H "Authorization: Bearer $ACCESS" | jq
+# {"total_crashes": 12, "open_crashes": 5, "crashes_last_24h": 2, "last_crash_at": "..."}
+```
+
+## 19. Deletion (admin only)
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+  "http://localhost:8000/api/v1/crashes/$CRASH_ID" -H "Authorization: Bearer $ADMIN_ACCESS"
+
+# Deleting a device cascades to its entire crash history.
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+  "http://localhost:8000/api/v1/devices/$DEVICE_UUID" -H "Authorization: Bearer $ADMIN_ACCESS"
+```
+
+Engineers get **403** here by design. Prefer marking a crash `ignored` or a
+device `decommissioned` — deleting removes evidence that analytics and future
+diagnoses depend on.
