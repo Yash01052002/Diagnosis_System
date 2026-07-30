@@ -12,21 +12,21 @@ something an engineer can act on.**
 > The firmware side is a separate module. This repository is the web platform:
 > backend, AI service, frontend and deployment.
 
-[![Phase](https://img.shields.io/badge/phase-2.5%20of%206-blue)]()
-[![Tests](https://img.shields.io/badge/tests-346%20passing-brightgreen)]()
+[![Phase](https://img.shields.io/badge/phase-3%20of%206-blue)]()
+[![Tests](https://img.shields.io/badge/tests-385%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ---
 
-## Current status — Phase 2.5 complete
+## Current status — Phase 3 complete
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Foundation, authentication, RBAC, audit trail | ✅ Complete |
 | 2 | Devices & crash report API, crash parser | ✅ Complete |
-| **2.5** | Crash analysis engine (ELF/MAP, symbolization, signatures) | ✅ **Complete** |
-| 3 | AI diagnosis & RAG knowledge base | ⏸ Planned |
+| 2.5 | Crash analysis engine (ELF/MAP, symbolization, signatures) | ✅ Complete |
+| **3** | AI diagnosis & RAG knowledge base | ✅ **Complete** |
 | 4 | Frontend application | ⏸ Planned |
 | 5 | Dashboard, analytics, export, notifications | ⏸ Planned |
 | 6 | Production hardening & CI/CD | ⏸ Planned |
@@ -72,6 +72,23 @@ Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - Late-upload re-symbolization: crashes stored as raw hex are upgraded when
   their ELF arrives
 
+**AI diagnosis (RAG)** *(Phase 3)*
+- Knowledge base for STM32/FreeRTOS/ARM manuals, engineering notes and
+  troubleshooting guides — ingested as text or `.txt`/`.md` upload, chunked,
+  embedded and deduplicated by content hash
+- Semantic search over the corpus, with a relevance floor so an off-topic
+  query returns nothing rather than noise
+- Retrieval-augmented crash diagnosis: symbolized crash → retrieve → prompt →
+  **structured** root cause, recommended fix, confidence and cited sources
+- **Anti-hallucination in code, not just the prompt**: confidence is grounded
+  in retrieval quality, capped by the best match, and a crash with no relevant
+  references comes back explicitly `uncertain` instead of invented
+- Diagnosis history per crash — re-running after adding a manual produces a new
+  answer to compare, never a silent overwrite
+- **Provider-swappable by configuration**: OpenAI, a local Ollama model, or a
+  deterministic offline default (template LLM + hashing embeddings + database
+  vector store) that needs no API key and no extra services
+
 **Platform**
 - Append-only audit trail with an admin query API
 - Liveness/readiness probes, structured JSON logs with request ids
@@ -98,17 +115,21 @@ Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
                         └──────────┬───────────┘
                                    │
                         ┌──────────▼───────────┐    ┌──────────────────┐
-                        │   AI service         │───▶│  ChromaDB        │
-                        │  RAG · LLM (Ph. 3)   │◀───│  vector store    │
-                        └──────────────────────┘    └──────────────────┘
+                        │  RAG diagnosis (Ph.3)│───▶│  vector store    │
+                        │  in-process in the   │◀───│  database default│
+                        │  backend · LLM +     │    │  (ChromaDB opt.) │
+                        │  embeddings swappable│    └──────────────────┘
+                        └──────────────────────┘
 ```
 
 The backend follows clean architecture — **API → service → repository →
 model** — so business rules stay testable and the LLM provider, email
 transport and vector store are all swappable behind interfaces.
 
-Details: [`docs/architecture/phase-1.md`](docs/architecture/phase-1.md) and
-[`docs/architecture/phase-2.md`](docs/architecture/phase-2.md).
+Details: [`phase-1`](docs/architecture/phase-1.md),
+[`phase-2`](docs/architecture/phase-2.md),
+[`phase-2.5`](docs/architecture/phase-2.5.md) and
+[`phase-3`](docs/architecture/phase-3.md).
 
 ---
 
@@ -122,7 +143,7 @@ Details: [`docs/architecture/phase-1.md`](docs/architecture/phase-1.md) and
 | Cache / queue | Redis 7, Celery |
 | Auth | JWT (python-jose), bcrypt (passlib) |
 | Logging | structlog (JSON in production) |
-| AI *(Phase 3)* | LangChain, ChromaDB, OpenAI API — provider-swappable |
+| AI diagnosis *(Phase 3)* | RAG built directly (no LangChain), NumPy cosine retrieval; OpenAI / Ollama / offline defaults; ChromaDB optional — all provider-swappable |
 | Frontend *(Phase 4)* | React, TypeScript, Vite, Tailwind, React Query, Recharts |
 | Deployment | Docker, Docker Compose, Nginx |
 | Quality | pytest, pytest-asyncio, ruff, mypy |
@@ -187,13 +208,14 @@ blackbox/
 │   │   ├── repositories/    all SQL lives here
 │   │   ├── schemas/         Pydantic request/response contracts
 │   │   ├── services/        business rules (auth, users, email, audit)
+│   │   │   └── ai/          RAG building blocks: chunking, embeddings,
+│   │   │                    LLM providers, vector store  (Phase 3)
 │   │   ├── main.py          application factory
 │   │   └── worker.py        Celery app and scheduled tasks
 │   ├── alembic/             migrations
 │   ├── tests/               unit + integration suites
 │   └── Dockerfile
 ├── frontend/                React SPA                      (Phase 4)
-├── ai-service/              RAG pipeline                   (Phase 3)
 ├── database/init/           PostgreSQL init scripts
 ├── docker/                  shared container assets
 ├── nginx/                   reverse proxy config           (Phase 6)
@@ -279,6 +301,21 @@ Base path `/api/v1`. Interactive docs at `/docs`.
 | GET | `/crash-groups/{id}/crashes` | viewer | Occurrences of one bug |
 | PATCH | `/crash-groups/{id}` | engineer | Triage the underlying defect |
 
+### Knowledge base & AI diagnosis *(Phase 3)*
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/knowledge-base/documents` | viewer | List / filter the reference corpus |
+| POST | `/knowledge-base/documents` | engineer | Ingest a document from text |
+| POST | `/knowledge-base/documents/upload` | engineer | Upload a `.txt`/`.md` file |
+| GET | `/knowledge-base/documents/{id}` | viewer | Document metadata & index status |
+| DELETE | `/knowledge-base/documents/{id}` | admin | Delete a document and its chunks |
+| GET | `/knowledge-base/stats` | viewer | Corpus totals and active providers |
+| POST | `/knowledge-base/search` | engineer | Semantic search over the corpus |
+| POST | `/crashes/{id}/diagnose` | engineer | Generate a RAG diagnosis |
+| GET | `/crashes/{id}/diagnoses` | viewer | Diagnosis history, newest first |
+| GET | `/diagnoses/{id}` | viewer | One diagnosis with sources & provenance |
+
 ### Audit & health
 
 | Method | Path | Role | Description |
@@ -357,24 +394,27 @@ cd backend && .venv/bin/python -m pytest tests/unit -v
 cd backend && .venv/bin/python -m pytest --cov=app --cov-report=html
 ```
 
-346 tests run against an in-memory SQLite database with the real schema, so no
+385 tests run against an in-memory SQLite database with the real schema, so no
 PostgreSQL server is needed:
 
 | Suite | Tests | Covers |
 |---|---|---|
 | `tests/unit/test_crash_parser.py` | 102 | Aliases, address/timestamp formats, fault classification, register and stack dumps, realistic firmware payloads |
-| `tests/unit/test_symbolizer.py` | 32 | Symbol/DWARF resolution, stack reconstruction, signatures — against a real compiled ELF |
-| `tests/unit/test_elf_parser.py` | 21 | ELF/MAP parsing, Thumb handling, address index |
+| `tests/unit/test_symbolizer.py` | 30 | Symbol/DWARF resolution, stack reconstruction, signatures — against a real compiled ELF |
+| `tests/unit/test_elf_parser.py` | 23 | ELF/MAP parsing, Thumb handling, address index |
+| `tests/unit/test_ai_components.py` | 19 | Chunking, hashing embeddings, cosine retrieval, template LLM grounding |
 | `tests/unit/test_security.py` | 15 | bcrypt, JWT signing/expiry/tampering, opaque tokens |
 | `tests/unit/test_schemas.py` | 15 | Password policy, pagination arithmetic |
-| `tests/integration/test_devices_api.py` | 36 | Device CRUD, RBAC, tags, search, API keys, heartbeat |
 | `tests/integration/test_crashes_api.py` | 37 | Ingestion auth, parsing, duplicates, history, triage, cascade |
-| `tests/integration/test_symbolication.py` | 16 | End-to-end symbolization, grouping, degradation, regression |
-| `tests/integration/test_builds_api.py` | 13 | Build upload, indexing, replace, RBAC, deletion |
-| `tests/integration/test_auth_api.py` | 33 | Registration, login, lockout, rotation, reset, audit |
+| `tests/integration/test_devices_api.py` | 36 | Device CRUD, RBAC, tags, search, API keys, heartbeat |
 | `tests/integration/test_users_api.py` | 17 | RBAC, search, role changes, self-service guards |
+| `tests/integration/test_symbolication.py` | 16 | End-to-end symbolization, grouping, degradation, regression |
+| `tests/integration/test_knowledge_base_api.py` | 13 | Ingestion, dedup, RBAC, semantic search, relevance floor, deletion |
+| `tests/integration/test_builds_api.py` | 13 | Build upload, indexing, replace, RBAC, deletion |
+| `tests/integration/test_auth_api.py` | 25 | Registration, login, lockout, rotation, reset, audit |
 | `tests/integration/test_health_api.py` | 9 | Probes, error envelope, middleware, OpenAPI |
 | `tests/integration/test_init_db.py` | 8 | Idempotent seeding, bootstrap admin validation |
+| `tests/integration/test_diagnosis_api.py` | 7 | Grounded & ungrounded diagnosis, anti-hallucination, RBAC, history |
 
 The suite enables `PRAGMA foreign_keys=ON` for SQLite so `ON DELETE CASCADE`
 behaves as it does on PostgreSQL — without it the tests would pass while the

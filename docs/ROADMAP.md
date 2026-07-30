@@ -8,8 +8,8 @@ sample requests and a Docker Compose stack that starts.
 | 1 | Foundation, Authentication & RBAC | ✅ Complete |
 | 2 | Devices & Crash Report API | ✅ Complete |
 | 2.5 | Crash Analysis Engine (ELF/MAP, symbolization) | ✅ Complete |
-| 3 | AI Diagnosis & RAG Knowledge Base | ⏳ Next |
-| 4 | Frontend Application | ⏸ Planned |
+| 3 | AI Diagnosis & RAG Knowledge Base | ✅ Complete |
+| 4 | Frontend Application | ⏳ Next |
 | 5 | Dashboard, Analytics, Export & Notifications | ⏸ Planned |
 | 6 | Production Hardening & CI/CD | ⏸ Planned |
 
@@ -83,25 +83,44 @@ Details: [`architecture/phase-2.5.md`](architecture/phase-2.5.md).
 
 ---
 
-## Phase 3 — AI Diagnosis & RAG Knowledge Base
+## Phase 3 — AI Diagnosis & RAG Knowledge Base ✅
 
-**Deliverables**
+**Delivered**
 
-- `LLMProvider` abstraction: OpenAI first, Ollama/local behind the same
-  interface, selected by `LLM_PROVIDER`.
-- Document ingestion: STM32 reference manuals, FreeRTOS docs, ARM Cortex-M
-  manuals, internal notes, previous crash reports, troubleshooting guides.
-- Chunking, embedding and vector storage in ChromaDB with metadata filters.
-- RAG pipeline: parsed crash + symbolization → retrieval → prompt → diagnosis.
-- Structured output: root cause, recommended fix, confidence score, and the
-  retrieved sources it relied on.
-- **Anti-hallucination**: the model answers only from retrieved context; when
-  retrieval is weak the diagnosis is returned as explicitly uncertain and
-  labelled as such in the API, never dressed up as a confident answer.
-- `ai_diagnoses` and `documents` tables, diagnosis history per crash.
+- `documents`, `document_chunks` and `ai_diagnoses` tables (migration `0004`);
+  diagnosis history kept per crash and per group.
+- Three provider seams, each an interface with a deterministic offline default
+  and HTTP-backed real options, selected purely by configuration:
+  `LLMProvider` (`LLM_PROVIDER` = template | openai | ollama),
+  `EmbeddingProvider` (`EMBEDDING_PROVIDER` = hashing | openai | ollama),
+  `VectorStore` (`VECTOR_STORE` = database | chroma). OpenAI/Ollama are called
+  over REST via `httpx` — no vendor SDK is a hard dependency.
+- Document ingestion for STM32 references, FreeRTOS docs, ARM Cortex-M manuals,
+  engineering notes, previous crash reports and troubleshooting guides — as
+  pasted text or `.txt`/`.md` upload; chunked with overlap, embedded, and
+  deduplicated by content hash.
+- Semantic search over the corpus with a relevance floor, so an off-topic query
+  returns nothing rather than noise.
+- RAG diagnosis pipeline: symbolized crash → query → retrieval → grounded prompt
+  → structured diagnosis (root cause, recommended fix, summary, confidence,
+  cited sources).
+- **Anti-hallucination enforced in code, not just the prompt**: confidence is
+  derived from retrieval quality and capped by the best match, the model's own
+  claim can only lower it, and a crash with no sufficiently relevant references
+  comes back explicitly `uncertain` with zero sources.
+- Built without LangChain — every step is a plain, unit-tested function — and
+  fully testable offline: the default template LLM + hashing embeddings +
+  database vector store need no API key and no extra services.
+- 39 new tests (385 total): 19 unit (chunking, embeddings, cosine, template
+  grounding), 20 integration (ingestion, dedup, RBAC, search, grounded and
+  ungrounded diagnosis, anti-hallucination, history).
 
-**Acceptance** — a HardFault with a known cause yields a cited diagnosis; a
-nonsense crash yields low confidence and an explicit "uncertain" verdict.
+**Acceptance met** — a HardFault whose cause is in the knowledge base yields a
+cited, non-uncertain diagnosis; the same crash against an empty or off-topic
+corpus yields an explicit `uncertain` verdict with no invented sources. Verified
+by the test suite and a live end-to-end smoke run (73 checks).
+
+Details: [`architecture/phase-3.md`](architecture/phase-3.md).
 
 ---
 

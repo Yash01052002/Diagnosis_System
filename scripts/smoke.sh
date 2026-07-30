@@ -278,6 +278,62 @@ else
   echo "  SKIP  crash analysis (no C compiler on PATH)"
 fi
 
+echo "── AI diagnosis (Phase 3) ──────────────────────────────"
+# The RAG engine answers only from the knowledge base. Default providers are
+# offline and deterministic (template LLM + hashing embeddings), so these
+# checks run with no API key and no extra services.
+HF_DOC='A HardFault raised inside a FreeRTOS task such as the SensorTask is most often caused by a task stack overflow. When a task overflows its stack the memory access traps as a HardFault escalated from a bus fault. Check the CFSR and BFAR fault registers, enable configCHECK_FOR_STACK_OVERFLOW, and increase the SensorTask stack depth.'
+check "POST /knowledge-base/documents" 201 "$(status -X POST "${API}/knowledge-base/documents" \
+  -H "Authorization: Bearer ${ACCESS}" -H 'Content-Type: application/json' \
+  -d "{\"title\":\"HardFault troubleshooting ${RUN_ID}\",\"source_type\":\"troubleshooting\",
+       \"content\":\"${HF_DOC}\"}")"
+DOC_ID="$(field "['id']")"
+echo "        status=$(field "['status']") chunks=$(field "['chunk_count']") model=$(field "['embedding_model']")"
+check "POST /knowledge-base/documents (viewer)" 403 "$(status -X POST "${API}/knowledge-base/documents" \
+  -H "Authorization: Bearer ${VIEWER_ACCESS}" -H 'Content-Type: application/json' \
+  -d "{\"title\":\"nope\",\"content\":\"${HF_DOC}\"}")"
+check "POST /knowledge-base/documents (duplicate)" 409 "$(status -X POST "${API}/knowledge-base/documents" \
+  -H "Authorization: Bearer ${ACCESS}" -H 'Content-Type: application/json' \
+  -d "{\"title\":\"copy\",\"source_type\":\"troubleshooting\",\"content\":\"${HF_DOC}\"}")"
+check "GET /knowledge-base/stats" 200 "$(status "${API}/knowledge-base/stats" \
+  -H "Authorization: Bearer ${ACCESS}")"
+echo "        documents=$(field "['documents']") chunks=$(field "['chunks']") provider=$(field "['embedding_provider']")"
+
+check "POST /knowledge-base/search (grounded)" 200 "$(status -X POST "${API}/knowledge-base/search" \
+  -H "Authorization: Bearer ${ACCESS}" -H 'Content-Type: application/json' \
+  -d '{"query":"HardFault in a FreeRTOS SensorTask stack overflow"}')"
+echo "        empty=$(field "['empty']") hits=$(python3 -c "import json;print(len(json.load(open('${BODY}'))['results']))" 2>/dev/null)"
+check "POST /knowledge-base/search (unrelated → empty)" 200 "$(status -X POST "${API}/knowledge-base/search" \
+  -H "Authorization: Bearer ${ACCESS}" -H 'Content-Type: application/json' \
+  -d '{"query":"quarterly sales revenue projection spreadsheet"}')"
+echo "        empty=$(field "['empty']")"
+check "POST /knowledge-base/search (viewer)" 403 "$(status -X POST "${API}/knowledge-base/search" \
+  -H "Authorization: Bearer ${VIEWER_ACCESS}" -H 'Content-Type: application/json' \
+  -d '{"query":"anything"}')"
+
+# A fresh crash to diagnose (the main CRASH_ID may be triaged/cascaded later).
+check "POST /crashes (for diagnosis)" 201 "$(status -X POST "${API}/crashes" \
+  -H "X-API-Key: ${DEVICE_KEY}" -H 'Content-Type: application/json' \
+  -d '{"firmware_version":"1.5.0","fault_type":"HardFault","task_name":"SensorTask",
+       "pc":"0x08001A2C"}')"
+AI_CRASH="$(field "['id']")"
+check "POST /crashes/{id}/diagnose (grounded)" 201 "$(status -X POST "${API}/crashes/${AI_CRASH}/diagnose" \
+  -H "Authorization: Bearer ${ACCESS}")"
+DIAG_ID="$(field "['id']")"
+echo "        label=$(field "['confidence_label']") uncertain=$(field "['is_uncertain']") sources=$(python3 -c "import json;print(len(json.load(open('${BODY}'))['sources']))" 2>/dev/null)"
+check "POST /crashes/{id}/diagnose (viewer)" 403 "$(status -X POST "${API}/crashes/${AI_CRASH}/diagnose" \
+  -H "Authorization: Bearer ${VIEWER_ACCESS}")"
+check "POST /crashes/{unknown}/diagnose" 404 "$(status -X POST "${API}/crashes/00000000-0000-0000-0000-000000000000/diagnose" \
+  -H "Authorization: Bearer ${ACCESS}")"
+check "GET /crashes/{id}/diagnoses (history)" 200 "$(status "${API}/crashes/${AI_CRASH}/diagnoses" \
+  -H "Authorization: Bearer ${VIEWER_ACCESS}")"
+check "GET /diagnoses/{id}" 200 "$(status "${API}/diagnoses/${DIAG_ID}" \
+  -H "Authorization: Bearer ${VIEWER_ACCESS}")"
+check "DELETE /knowledge-base/documents/{id} (viewer)" 403 "$(status -X DELETE "${API}/knowledge-base/documents/${DOC_ID}" \
+  -H "Authorization: Bearer ${VIEWER_ACCESS}")"
+check "DELETE /knowledge-base/documents/{id} (admin)" 204 "$(status -X DELETE "${API}/knowledge-base/documents/${DOC_ID}" \
+  -H "Authorization: Bearer ${ACCESS}")"
+
 echo "── Cleanup ─────────────────────────────────────────────"
 check "DELETE api-key" 204 "$(status -X DELETE "${API}/devices/${DEVICE_UUID}/api-keys/${KEY_ID}" \
   -H "Authorization: Bearer ${ACCESS}")"

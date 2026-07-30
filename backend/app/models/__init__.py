@@ -10,6 +10,13 @@ from app.models.build import ArtifactType, BuildStatus, BuildSymbol, FirmwareBui
 from app.models.crash import CrashReport, CrashSeverity, CrashStatus, FaultType
 from app.models.crash_group import CrashGroup, CrashGroupStatus
 from app.models.device import Device, DeviceApiKey, DeviceStatus, Tag, device_tags
+from app.models.diagnosis import AiDiagnosis, ConfidenceLabel
+from app.models.document import (
+    Document,
+    DocumentChunk,
+    DocumentSourceType,
+    DocumentStatus,
+)
 from app.models.user import (
     PasswordResetToken,
     RefreshToken,
@@ -30,8 +37,14 @@ __all__ = [
     "CrashGroupStatus",
     "CrashReport",
     "CrashSeverity",
+    "AiDiagnosis",
+    "ConfidenceLabel",
     "CrashStatus",
     "Device",
+    "Document",
+    "DocumentChunk",
+    "DocumentSourceType",
+    "DocumentStatus",
     "DeviceApiKey",
     "DeviceStatus",
     "FaultType",

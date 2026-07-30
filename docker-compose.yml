@@ -57,6 +57,11 @@ services:
       POSTGRES_SERVER: db
       REDIS_URL: redis://redis:6379/0
       ARTIFACT_STORAGE_DIR: /data/artifacts
+      # Only consulted when VECTOR_STORE=chroma; harmless otherwise. Points at
+      # the optional "chroma" service below (started with --profile chroma).
+      # In-network Chroma listens on 8000; the 8001 in .env is the host mapping.
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
     volumes:
       # Firmware ELF/MAP files must outlive the container and be shared with
       # the worker, which re-symbolizes crashes out of band.
@@ -86,6 +91,8 @@ services:
       POSTGRES_SERVER: db
       REDIS_URL: redis://redis:6379/0
       ARTIFACT_STORAGE_DIR: /data/artifacts
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
       # Migrations and seeding are owned by the backend container.
       RUN_MIGRATIONS: "false"
       RUN_SEED: "false"
@@ -123,10 +130,37 @@ services:
       backend: { condition: service_started }
     networks: [blackbox]
 
+  # Optional vector store for the RAG engine. The default stack uses the
+  # database-backed vector store and needs nothing here; start Chroma only when
+  # running VECTOR_STORE=chroma:
+  #
+  #   docker compose --profile chroma up -d
+  #
+  chroma:
+    image: chromadb/chroma:0.5.5
+    container_name: blackbox-chroma
+    profiles: [chroma]
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - chroma_data:/chroma/chroma
+    ports:
+      - "${CHROMA_EXPOSED_PORT:-8001}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [blackbox]
+
 volumes:
   postgres_data:
   artifact_data:
   redis_data:
+  chroma_data:
 
 networks:
   blackbox:

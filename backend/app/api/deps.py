@@ -30,6 +30,8 @@ from app.repositories.device import (
     DeviceRepository,
     TagRepository,
 )
+from app.repositories.diagnosis import AiDiagnosisRepository
+from app.repositories.document import DocumentChunkRepository, DocumentRepository
 from app.repositories.user import (
     PasswordResetTokenRepository,
     RefreshTokenRepository,
@@ -37,13 +39,18 @@ from app.repositories.user import (
     UserRepository,
 )
 from app.schemas.common import PaginationParams
+from app.services.ai.embeddings import get_embedding_provider
+from app.services.ai.llm import get_llm_provider
+from app.services.ai.vector_store import get_vector_store
 from app.services.audit import AuditService
 from app.services.auth import AuthService, RequestContext
 from app.services.build import BuildService
 from app.services.crash import CrashService
 from app.services.crash_parser import CrashParser, crash_parser
 from app.services.device import DeviceService
+from app.services.diagnosis import DiagnosisService
 from app.services.email import EmailSender, get_email_sender
+from app.services.knowledge_base import KnowledgeBaseService
 from app.services.symbolication import SymbolicationService
 from app.services.user import UserService
 
@@ -124,6 +131,18 @@ def get_build_symbol_repository(session: SessionDep) -> BuildSymbolRepository:
 
 def get_crash_group_repository(session: SessionDep) -> CrashGroupRepository:
     return CrashGroupRepository(session)
+
+
+def get_document_repository(session: SessionDep) -> DocumentRepository:
+    return DocumentRepository(session)
+
+
+def get_document_chunk_repository(session: SessionDep) -> DocumentChunkRepository:
+    return DocumentChunkRepository(session)
+
+
+def get_diagnosis_repository(session: SessionDep) -> AiDiagnosisRepository:
+    return AiDiagnosisRepository(session)
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +267,46 @@ def get_crash_service(
     )
 
 
+def get_knowledge_base_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    documents: Annotated[DocumentRepository, Depends(get_document_repository)],
+    chunks: Annotated[DocumentChunkRepository, Depends(get_document_chunk_repository)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+) -> KnowledgeBaseService:
+    embedder = get_embedding_provider(settings)
+    return KnowledgeBaseService(
+        session=session,
+        documents=documents,
+        chunks=chunks,
+        embedder=embedder,
+        vector_store=get_vector_store(session, settings),
+        audit=audit,
+        settings=settings,
+    )
+
+
+def get_diagnosis_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    crashes: Annotated[CrashReportRepository, Depends(get_crash_repository)],
+    groups: Annotated[CrashGroupRepository, Depends(get_crash_group_repository)],
+    diagnoses: Annotated[AiDiagnosisRepository, Depends(get_diagnosis_repository)],
+    knowledge_base: Annotated[KnowledgeBaseService, Depends(get_knowledge_base_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+) -> DiagnosisService:
+    return DiagnosisService(
+        session=session,
+        crashes=crashes,
+        groups=groups,
+        diagnoses=diagnoses,
+        knowledge_base=knowledge_base,
+        llm=get_llm_provider(settings),
+        audit=audit,
+        settings=settings,
+    )
+
+
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 AuditServiceDep = Annotated[AuditService, Depends(get_audit_service)]
@@ -255,6 +314,10 @@ DeviceServiceDep = Annotated[DeviceService, Depends(get_device_service)]
 CrashServiceDep = Annotated[CrashService, Depends(get_crash_service)]
 BuildServiceDep = Annotated[BuildService, Depends(get_build_service)]
 SymbolicationServiceDep = Annotated[SymbolicationService, Depends(get_symbolication_service)]
+KnowledgeBaseServiceDep = Annotated[
+    KnowledgeBaseService, Depends(get_knowledge_base_service)
+]
+DiagnosisServiceDep = Annotated[DiagnosisService, Depends(get_diagnosis_service)]
 
 
 # ---------------------------------------------------------------------------
