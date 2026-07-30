@@ -47,6 +47,11 @@ class AuditAction(StrEnum):
 
     CRASH_GROUP_UPDATED = "crash_group.updated"
 
+    DOCUMENT_UPLOADED = "document.uploaded"
+    DOCUMENT_DELETED = "document.deleted"
+
+    DIAGNOSIS_GENERATED = "diagnosis.generated"
+
 
 class AuditLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """One row per security-relevant event.

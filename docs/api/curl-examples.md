@@ -624,3 +624,154 @@ curl -s -X PATCH "http://localhost:8000/api/v1/crash-groups/$GROUP_ID" \
 Marking a group `resolved` is a claim about the **bug**. If a matching crash
 arrives afterwards, the group flips to `regressed` automatically — a fix that
 did not hold is more urgent than a fresh bug.
+
+---
+
+# Phase 3 — AI Diagnosis (RAG)
+
+## 25. Build the knowledge base
+
+The diagnosis engine answers **only** from the reference material you give it.
+Upload STM32/FreeRTOS manuals, ARM Cortex-M references, engineering notes and
+troubleshooting guides — as pasted text or as `.txt`/`.md` files.
+
+```bash
+# Ingest from pasted text (engineer)
+curl -s -X POST "http://localhost:8000/api/v1/knowledge-base/documents" \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{
+    "title": "HardFault troubleshooting - FreeRTOS stack overflow",
+    "source_type": "troubleshooting",
+    "content": "A HardFault raised inside a FreeRTOS task is most often caused by a task stack overflow. When a task overflows its stack the memory access traps as a HardFault escalated from a bus fault. Check the CFSR and BFAR fault registers, enable configCHECK_FOR_STACK_OVERFLOW, and increase the task stack depth."
+  }' | jq
+```
+
+```json
+{
+  "id": "6f1c...",
+  "title": "HardFault troubleshooting - FreeRTOS stack overflow",
+  "source_type": "troubleshooting",
+  "status": "indexed",
+  "chunk_count": 1,
+  "embedding_model": "hashing-384",
+  "indexed_at": "2026-07-30T10:00:00Z"
+}
+```
+
+```bash
+# Or upload a text file
+curl -s -X POST "http://localhost:8000/api/v1/knowledge-base/documents/upload" \
+  -H "Authorization: Bearer $ACCESS" \
+  -F "file=@cortex-m4-fault-handling.md;type=text/markdown" \
+  -F "source_type=arm_cortex_m" | jq '.status, .chunk_count'
+
+# Corpus overview (viewer) - totals and the active providers
+curl -s "http://localhost:8000/api/v1/knowledge-base/stats" \
+  -H "Authorization: Bearer $ACCESS" | jq
+```
+
+Re-uploading identical content is a `409` — the corpus is deduplicated by
+content hash, not silently doubled.
+
+## 26. Semantic search over the corpus
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/knowledge-base/search" \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{"query": "HardFault in a FreeRTOS task, stack overflow", "top_k": 5}' | jq
+```
+
+An `"empty": true` result is a real answer: the corpus has nothing relevant.
+Only passages above the relevance floor come back — the first line of the
+anti-hallucination defence.
+
+## 27. Diagnose a crash (grounded)
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/crashes/$CRASH_ID/diagnose" \
+  -H "Authorization: Bearer $ACCESS" | jq
+```
+
+```json
+{
+  "id": "a2d0...",
+  "crash_id": "…",
+  "root_cause": "The hard_fault in `vTaskDelay` (task `SensorTask`) is consistent with the referenced material: A HardFault raised inside a FreeRTOS task is most often caused by a task stack overflow…",
+  "recommended_fix": "Follow the remediation described in the cited reference and review the implementation of vTaskDelay against it.",
+  "confidence_score": 0.34,
+  "confidence_label": "likely",
+  "is_uncertain": false,
+  "top_relevance": 0.41,
+  "sources": [
+    {
+      "document_title": "HardFault troubleshooting - FreeRTOS stack overflow",
+      "source_type": "troubleshooting",
+      "chunk_index": 0,
+      "score": 0.41,
+      "excerpt": "A HardFault raised inside a FreeRTOS task…"
+    }
+  ],
+  "provider": "template",
+  "model": "template-v1",
+  "warnings": []
+}
+```
+
+Every answer lists the **sources** it was built from, and the confidence is
+grounded in retrieval quality — not the model's own claim.
+
+## 28. Diagnose a crash (nothing relevant → explicitly uncertain)
+
+With an empty or off-topic knowledge base, the same call refuses to guess:
+
+```json
+{
+  "root_cause": "A hard_fault in vTaskDelay was reported, but no relevant reference material was found in the knowledge base to explain it. The cause cannot be determined with confidence from the available information.",
+  "confidence_score": 0.1,
+  "confidence_label": "uncertain",
+  "is_uncertain": true,
+  "sources": [],
+  "warnings": [
+    "retrieval found no sufficiently relevant reference material; diagnosis is not well grounded and is marked uncertain"
+  ]
+}
+```
+
+This is the anti-hallucination contract in action: **no context, no invented
+answer.** Upload the relevant manual and re-run to get a grounded diagnosis.
+
+## 29. Diagnosis history
+
+```bash
+# Every diagnosis for a crash, newest first (viewer)
+curl -s "http://localhost:8000/api/v1/crashes/$CRASH_ID/diagnoses" \
+  -H "Authorization: Bearer $ACCESS" | jq '.[] | {id, confidence_label, sources: (.sources|length)}'
+
+# One diagnosis with full sources and provenance
+curl -s "http://localhost:8000/api/v1/diagnoses/$DIAGNOSIS_ID" \
+  -H "Authorization: Bearer $ACCESS" | jq
+```
+
+Re-running after adding a manual creates a **new** diagnosis to compare
+against, never an overwrite — the history is the record of how understanding of
+a bug improved.
+
+## 30. Point the engine at a real model
+
+No code changes — only configuration:
+
+```bash
+# OpenAI (or any OpenAI-compatible endpoint via OPENAI_BASE_URL)
+LLM_PROVIDER=openai
+EMBEDDING_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+
+# A fully local stack via Ollama
+LLM_PROVIDER=ollama
+EMBEDDING_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+The `/knowledge-base/stats` response reports which providers are live. Note
+that switching the embedding provider means existing documents must be
+re-indexed under the new model's vectors before they are retrievable again.

@@ -201,6 +201,74 @@ def resymbolicate_firmware(
     return {"firmware_version": firmware_version, **result}
 
 
+@celery_app.task(name="app.worker.diagnose_crash")
+def diagnose_crash(crash_id: str, requested_by_id: str | None = None) -> dict[str, Any]:
+    """Generate an AI diagnosis for a crash out of band.
+
+    The diagnose endpoint runs synchronously so an engineer gets an immediate
+    answer, but bulk or scheduled diagnosis (e.g. every new critical crash)
+    belongs on the worker, where a slow LLM call does not hold a request open.
+    """
+
+    async def _run() -> dict[str, Any]:
+        import uuid as _uuid
+
+        from app.core.config import get_settings
+        from app.db.session import SessionFactory
+        from app.repositories.audit_log import AuditLogRepository
+        from app.repositories.crash import CrashReportRepository
+        from app.repositories.crash_group import CrashGroupRepository
+        from app.repositories.diagnosis import AiDiagnosisRepository
+        from app.repositories.document import DocumentChunkRepository, DocumentRepository
+        from app.repositories.user import UserRepository
+        from app.services.ai.embeddings import get_embedding_provider
+        from app.services.ai.llm import get_llm_provider
+        from app.services.ai.vector_store import get_vector_store
+        from app.services.audit import AuditService
+        from app.services.diagnosis import DiagnosisService
+        from app.services.knowledge_base import KnowledgeBaseService
+
+        settings = get_settings()
+        async with SessionFactory() as session:
+            audit = AuditService(AuditLogRepository(session))
+            kb = KnowledgeBaseService(
+                session=session,
+                documents=DocumentRepository(session),
+                chunks=DocumentChunkRepository(session),
+                embedder=get_embedding_provider(settings),
+                vector_store=get_vector_store(session, settings),
+                audit=audit,
+                settings=settings,
+            )
+            service = DiagnosisService(
+                session=session,
+                crashes=CrashReportRepository(session),
+                groups=CrashGroupRepository(session),
+                diagnoses=AiDiagnosisRepository(session),
+                knowledge_base=kb,
+                llm=get_llm_provider(settings),
+                audit=audit,
+                settings=settings,
+            )
+            actor = None
+            if requested_by_id:
+                actor = await UserRepository(session).get_with_roles(_uuid.UUID(requested_by_id))
+            if actor is None:
+                return {"status": "no_actor", "crash_id": crash_id}
+            outcome = await service.diagnose_crash(_uuid.UUID(crash_id), actor=actor)
+            return {
+                "status": "diagnosed",
+                "crash_id": crash_id,
+                "diagnosis_id": str(outcome.diagnosis.id),
+                "confidence": outcome.diagnosis.confidence_label,
+                "sources": outcome.diagnosis.source_count,
+            }
+
+    result = _run_async(_run)
+    logger.info("worker.diagnosed_crash", **result)
+    return result
+
+
 @celery_app.task(name="app.worker.reparse_crash_report")
 def reparse_crash_report(crash_id: str) -> dict[str, Any]:
     """Re-run the parser over a stored report's original payload.

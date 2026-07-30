@@ -13,6 +13,8 @@ from app.api.v1.endpoints import (
     crash_groups,
     crashes,
     devices,
+    diagnoses,
+    knowledge,
     users,
 )
 
@@ -23,6 +25,8 @@ api_router.include_router(devices.router)
 api_router.include_router(crashes.router)
 api_router.include_router(crash_groups.router)
 api_router.include_router(builds.router)
+api_router.include_router(knowledge.router)
+api_router.include_router(diagnoses.router)
 api_router.include_router(audit.router)
 
 __all__ = ["api_router"]

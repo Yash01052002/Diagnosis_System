@@ -24,6 +24,7 @@ dependencies = [
     "structlog>=24.4.0",
     "httpx>=0.27.0",
     "pyelftools>=0.31",
+    "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,18 @@ dev = [
     "aiosqlite>=0.20.0",
     "ruff>=0.6.0",
     "mypy>=1.11.0",
+]
+# The default RAG stack (template LLM + hashing embeddings + database vector
+# store) needs nothing beyond the core dependencies. These extras swap in a
+# real provider by configuration alone — no code change (see LLM_PROVIDER,
+# EMBEDDING_PROVIDER, VECTOR_STORE).
+openai = [
+    # Uses the REST API directly over httpx; the SDK is not required, but a
+    # tokenizer is handy when tuning chunk sizes.
+    "tiktoken>=0.7.0",
+]
+chroma = [
+    "chromadb>=0.5.0",
 ]
 
 [build-system]

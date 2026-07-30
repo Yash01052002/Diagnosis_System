@@ -416,3 +416,70 @@ Content-Type: application/json
 ### Delete a crash report (admin only)
 DELETE {{api}}/crashes/{{crashId}}
 Authorization: Bearer {{accessToken}}
+
+###############################################################################
+# Phase 3 — AI Diagnosis (RAG)
+###############################################################################
+
+### Ingest a knowledge-base document from text (engineer)
+POST {{api}}/knowledge-base/documents
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "HardFault troubleshooting - FreeRTOS stack overflow",
+  "source_type": "troubleshooting",
+  "content": "A HardFault raised inside a FreeRTOS task is most often caused by a task stack overflow. When a task overflows its stack the memory access traps as a HardFault escalated from a bus fault. Check the CFSR and BFAR fault registers, enable configCHECK_FOR_STACK_OVERFLOW, and increase the task stack depth."
+}
+
+### Upload a text/markdown document (engineer)
+POST {{api}}/knowledge-base/documents/upload
+Authorization: Bearer {{accessToken}}
+Content-Type: multipart/form-data; boundary=----blackbox
+
+------blackbox
+Content-Disposition: form-data; name="source_type"
+
+arm_cortex_m
+------blackbox
+Content-Disposition: form-data; name="file"; filename="cortex-m-faults.md"
+Content-Type: text/markdown
+
+The Cortex-M Configurable Fault Status Register (CFSR) records the cause of a
+HardFault escalation. A precise bus fault sets BFARVALID and latches the
+faulting address into BFAR.
+------blackbox--
+
+### Knowledge-base overview: totals and active providers (viewer)
+GET {{api}}/knowledge-base/stats
+Authorization: Bearer {{accessToken}}
+
+### List / filter the corpus (viewer)
+GET {{api}}/knowledge-base/documents?source_type=troubleshooting&status=indexed
+Authorization: Bearer {{accessToken}}
+
+### Semantic search over the knowledge base (engineer)
+POST {{api}}/knowledge-base/search
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "query": "HardFault in a FreeRTOS task, stack overflow",
+  "top_k": 5
+}
+
+### Delete a document and its chunks (admin only)
+DELETE {{api}}/knowledge-base/documents/{{documentId}}
+Authorization: Bearer {{accessToken}}
+
+### Diagnose a crash with RAG (engineer)
+POST {{api}}/crashes/{{crashId}}/diagnose
+Authorization: Bearer {{accessToken}}
+
+### Diagnosis history for a crash, newest first (viewer)
+GET {{api}}/crashes/{{crashId}}/diagnoses
+Authorization: Bearer {{accessToken}}
+
+### One diagnosis with its sources and provenance (viewer)
+GET {{api}}/diagnoses/{{diagnosisId}}
+Authorization: Bearer {{accessToken}}

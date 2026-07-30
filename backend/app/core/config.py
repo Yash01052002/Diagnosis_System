@@ -107,6 +107,61 @@ class Settings(BaseSettings):
     #: only for a non-Thumb target, where it would filter out every frame.
     REQUIRE_THUMB_BIT: bool = True
 
+    # -- AI diagnosis & RAG (Phase 3) ------------------------------------
+    #: LLM backend. ``template`` is a deterministic, offline, grounded provider
+    #: (the default, and what the test suite uses); ``openai`` and ``ollama``
+    #: call a real model over HTTP. The interface is identical, which is what
+    #: makes "OpenAI now, local model later" a one-line change.
+    LLM_PROVIDER: Literal["template", "openai", "ollama"] = "template"
+    #: Embedding backend. ``hashing`` is deterministic and offline; the others
+    #: call a real embedding model.
+    EMBEDDING_PROVIDER: Literal["hashing", "openai", "ollama"] = "hashing"
+    #: Vector store. ``database`` keeps embeddings in PostgreSQL and scores in
+    #: Python — no extra infrastructure, works everywhere. ``chroma`` uses a
+    #: ChromaDB server for larger corpora.
+    VECTOR_STORE: Literal["database", "chroma"] = "database"
+
+    OPENAI_API_KEY: str | None = None
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    OPENAI_CHAT_MODEL: str = "gpt-4o-mini"
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_CHAT_MODEL: str = "llama3.1"
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
+
+    CHROMA_HOST: str = "localhost"
+    CHROMA_PORT: int = 8001
+    CHROMA_COLLECTION: str = "blackbox_kb"
+
+    #: Dimensionality of the offline hashing embedder. Only used by the
+    #: ``hashing`` provider; real providers report their own dimension.
+    HASHING_EMBEDDING_DIM: int = 384
+    #: Characters per knowledge-base chunk, and overlap between adjacent chunks
+    #: so a fact split across a boundary is still retrievable from both sides.
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 150
+    MAX_DOCUMENT_SIZE_MB: int = 32
+
+    #: How many chunks a diagnosis retrieves as context.
+    RAG_TOP_K: int = 6
+    #: Cosine similarity below which a retrieved chunk is treated as irrelevant.
+    #: The anti-hallucination floor: if nothing clears this, the diagnosis is
+    #: returned as explicitly uncertain rather than invented. Calibrated so the
+    #: offline hashing embedder's relevant matches (~0.25) clear it while its
+    #: irrelevant ones (~0.05) do not; real embedding models score well above.
+    RAG_MIN_RELEVANCE: float = 0.18
+    #: A diagnosis is labelled uncertain when the best retrieval score is below
+    #: this, no matter what the model returns.
+    RAG_CONFIDENCE_FLOOR: float = 0.18
+    #: Best retrieval score at or above which a well-grounded answer may be
+    #: called "certain". Real embedding models reach this for a strong match;
+    #: the lexical fallback tops out at "likely", which is the honest label
+    #: for a keyword-overlap retrieval feeding a template model.
+    RAG_CERTAIN_THRESHOLD: float = 0.55
+    LLM_MAX_TOKENS: int = 800
+    LLM_TIMEOUT_SECONDS: int = 60
+
     # -- Frontend --------------------------------------------------------
     FRONTEND_URL: AnyHttpUrl = AnyHttpUrl("http://localhost:5173")
 
