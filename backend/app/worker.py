@@ -121,6 +121,86 @@ def mark_stale_devices_inactive(threshold_hours: int = 24) -> dict[str, Any]:
     return {"updated": updated, "threshold_hours": threshold_hours}
 
 
+@celery_app.task(name="app.worker.symbolicate_crash_report")
+def symbolicate_crash_report(crash_id: str) -> dict[str, Any]:
+    """Symbolize one crash report and file it into a crash group.
+
+    Ingestion already symbolizes inline, so this is the out-of-band path: bulk
+    re-processing, retries after a transient failure, and the hook a future
+    diagnosis pipeline chains onto.
+    """
+
+    async def _run() -> dict[str, Any]:
+        import uuid as _uuid
+
+        from app.core.config import get_settings
+        from app.db.session import SessionFactory
+        from app.repositories.build import BuildSymbolRepository, FirmwareBuildRepository
+        from app.repositories.crash import CrashReportRepository
+        from app.repositories.crash_group import CrashGroupRepository
+        from app.services.symbolication import SymbolicationService
+
+        async with SessionFactory() as session:
+            service = SymbolicationService(
+                session=session,
+                crashes=CrashReportRepository(session),
+                builds=FirmwareBuildRepository(session),
+                symbols=BuildSymbolRepository(session),
+                groups=CrashGroupRepository(session),
+                settings=get_settings(),
+            )
+            outcome = await service.symbolicate(_uuid.UUID(crash_id))
+            return {
+                "status": "symbolicated",
+                "crash_id": crash_id,
+                "signature": outcome.signature,
+                "group_id": str(outcome.group.id) if outcome.group else None,
+                "resolved_frames": outcome.result.resolved_count,
+            }
+
+    result = _run_async(_run)
+    logger.info("worker.symbolicated_crash", **result)
+    return result
+
+
+@celery_app.task(name="app.worker.resymbolicate_firmware")
+def resymbolicate_firmware(
+    firmware_version: str, build_version: str | None = None, limit: int = 500
+) -> dict[str, Any]:
+    """Re-symbolize stored crashes after a build artifact is uploaded.
+
+    Crashes collected before the ELF existed are upgraded in place, which is
+    what makes uploading an artifact after the fact worth doing at all.
+    """
+
+    async def _run() -> dict[str, Any]:
+        from app.core.config import get_settings
+        from app.db.session import SessionFactory
+        from app.repositories.build import BuildSymbolRepository, FirmwareBuildRepository
+        from app.repositories.crash import CrashReportRepository
+        from app.repositories.crash_group import CrashGroupRepository
+        from app.services.symbolication import SymbolicationService
+
+        async with SessionFactory() as session:
+            service = SymbolicationService(
+                session=session,
+                crashes=CrashReportRepository(session),
+                builds=FirmwareBuildRepository(session),
+                symbols=BuildSymbolRepository(session),
+                groups=CrashGroupRepository(session),
+                settings=get_settings(),
+            )
+            return await service.resymbolicate_for_build(
+                firmware_version=firmware_version,
+                build_version=build_version,
+                limit=limit,
+            )
+
+    result = _run_async(_run)
+    logger.info("worker.resymbolicated_firmware", firmware_version=firmware_version, **result)
+    return {"firmware_version": firmware_version, **result}
+
+
 @celery_app.task(name="app.worker.reparse_crash_report")
 def reparse_crash_report(crash_id: str) -> dict[str, Any]:
     """Re-run the parser over a stored report's original payload.

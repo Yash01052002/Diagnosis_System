@@ -476,3 +476,151 @@ curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
 Engineers get **403** here by design. Prefer marking a crash `ignored` or a
 device `decommissioned` — deleting removes evidence that analytics and future
 diagnoses depend on.
+
+---
+
+# Phase 2.5 — Crash Analysis Engine
+
+## 20. Upload a firmware build (ELF or MAP)
+
+Symbolization needs the build's symbol table. Upload the ELF an engineer built,
+indexed by the `firmware_version` (and optional `build_version`) that devices
+report.
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/builds \
+  -H "Authorization: Bearer $ACCESS" \
+  -F "firmware_version=1.4.2" \
+  -F "build_version=a1b2c3d" \
+  -F "hardware_model=STM32F407VG" \
+  -F "file=@firmware.elf" | jq
+```
+
+```json
+{
+  "id": "7c3e...",
+  "status": "indexed",
+  "artifact_type": "elf",
+  "arch": "ARM",
+  "has_debug_info": true,
+  "symbol_count": 1284,
+  "message": "Indexed 1,284 symbols with debug info."
+}
+```
+
+Requires `engineer`. The type is detected from the file **contents**, not its
+name — an ELF called `firmware.map` is still an ELF. A MAP file gives function
+names only (no line numbers); an ELF with DWARF gives `file:line`. Re-uploading
+for the same `(firmware_version, build_version)` **replaces** the artifact.
+
+```bash
+# List and inspect builds
+curl -s "http://localhost:8000/api/v1/builds?firmware_version=1.4.2" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/builds/$BUILD_ID" -H "Authorization: Bearer $ACCESS" | jq
+
+# Delete (admin only) - removes the artifact file and its symbols
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE \
+  "http://localhost:8000/api/v1/builds/$BUILD_ID" -H "Authorization: Bearer $ADMIN_ACCESS"
+```
+
+## 21. A symbolized crash
+
+Once the build is indexed, submit a crash exactly as in Phase 2. Fetch it and
+the addresses are now resolved:
+
+```bash
+curl -s "http://localhost:8000/api/v1/crashes/$CRASH_ID" -H "Authorization: Bearer $ACCESS" | jq .symbolication
+```
+
+```json
+{
+  "symbolized": true,
+  "build_version": "a1b2c3d",
+  "pc": {
+    "address_hex": "0x08001A2C",
+    "function": "vTaskDelay",
+    "offset": 28,
+    "source_file": "tasks.c",
+    "line": 1432,
+    "resolved": true,
+    "display": "vTaskDelay+0x1C at tasks.c:1432"
+  },
+  "frames": [
+    { "origin": "pc", "display": "vTaskDelay+0x1C at tasks.c:1432" },
+    { "origin": "lr", "display": "prvIdleTask+0x40 at tasks.c:3210" },
+    { "origin": "stack", "display": "main+0x88 at main.c:74" }
+  ],
+  "resolved_count": 3,
+  "warnings": []
+}
+```
+
+The report also gains `top_function`, `crash_signature`, and a `group`.
+
+If no build has been uploaded yet, the crash still stores fine — `symbolized`
+is `false`, the frames carry raw addresses, and a warning explains that an ELF
+should be uploaded.
+
+## 22. Re-symbolize after a late upload
+
+Crashes collected before the ELF existed are upgraded in place:
+
+```bash
+# Re-run for one crash
+curl -s -X POST "http://localhost:8000/api/v1/crashes/$CRASH_ID/symbolicate" \
+  -H "Authorization: Bearer $ACCESS" | jq .symbolized
+
+# Re-run for every crash matching a build
+curl -s -X POST "http://localhost:8000/api/v1/builds/$BUILD_ID/resymbolicate" \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{"limit": 500}' | jq
+# {"processed": 213, "upgraded": 209, "total_matching": 213}
+```
+
+## 23. Crash groups — one row per bug
+
+A fleet hitting one defect produces thousands of crash reports. Groups collapse
+them:
+
+```bash
+curl -s "http://localhost:8000/api/v1/crash-groups?status=open&sort=-occurrence_count" \
+  -H "Authorization: Bearer $ACCESS" | jq '.items[0]'
+```
+
+```json
+{
+  "signature": "2bf9ee03291a3038...",
+  "title": "hard fault in vTaskDelay",
+  "top_function": "vTaskDelay",
+  "status": "open",
+  "severity": "critical",
+  "occurrence_count": 847,
+  "device_count": 213,
+  "first_seen_at": "2026-07-20T08:11:00Z",
+  "last_seen_at": "2026-07-27T09:14:22Z",
+  "affected_firmware_versions": ["1.4.2", "1.4.1"]
+}
+```
+
+```bash
+# The "most common root causes" list
+curl -s "http://localhost:8000/api/v1/crash-groups/top?limit=10" -H "Authorization: Bearer $ACCESS" | jq
+
+# Every occurrence of one bug
+curl -s "http://localhost:8000/api/v1/crash-groups/$GROUP_ID/crashes" -H "Authorization: Bearer $ACCESS" | jq
+
+# Filter crash history by group
+curl -s "http://localhost:8000/api/v1/crashes?group_id=$GROUP_ID" -H "Authorization: Bearer $ACCESS" | jq
+```
+
+## 24. Triage the bug, not the occurrence
+
+```bash
+curl -s -X PATCH "http://localhost:8000/api/v1/crash-groups/$GROUP_ID" \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{"status": "resolved", "notes": "Fixed the DMA/ISR race in 1.5.0"}' | jq
+```
+
+Marking a group `resolved` is a claim about the **bug**. If a matching crash
+arrives afterwards, the group flips to `regressed` automatically — a fix that
+did not hold is more urgent than a fresh bug.

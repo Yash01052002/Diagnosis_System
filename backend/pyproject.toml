@@ -23,6 +23,7 @@ dependencies = [
     "celery>=5.4.0",
     "structlog>=24.4.0",
     "httpx>=0.27.0",
+    "pyelftools>=0.31",
 ]
 
 [project.optional-dependencies]
@@ -62,6 +63,14 @@ plugins = ["pydantic.mypy"]
 warn_unused_ignores = true
 disallow_untyped_defs = true
 ignore_missing_imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# The build service does synchronous file I/O in the upload path on purpose:
+# ELF/MAP artifacts are small and uploads are infrequent, so indexing runs
+# inline (see BuildService.upload) rather than adding thread-offload machinery.
+"app/services/build.py" = ["ASYNC240"]
+# Tests read fixture files directly; they are not on the event-loop hot path.
+"tests/**" = ["ASYNC240"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"

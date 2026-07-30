@@ -56,6 +56,11 @@ services:
     environment:
       POSTGRES_SERVER: db
       REDIS_URL: redis://redis:6379/0
+      ARTIFACT_STORAGE_DIR: /data/artifacts
+    volumes:
+      # Firmware ELF/MAP files must outlive the container and be shared with
+      # the worker, which re-symbolizes crashes out of band.
+      - artifact_data:/data/artifacts
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -80,9 +85,12 @@ services:
     environment:
       POSTGRES_SERVER: db
       REDIS_URL: redis://redis:6379/0
+      ARTIFACT_STORAGE_DIR: /data/artifacts
       # Migrations and seeding are owned by the backend container.
       RUN_MIGRATIONS: "false"
       RUN_SEED: "false"
+    volumes:
+      - artifact_data:/data/artifacts
     command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO"]
     depends_on:
       db: { condition: service_healthy }
@@ -117,6 +125,7 @@ services:
 
 volumes:
   postgres_data:
+  artifact_data:
   redis_data:
 
 networks:

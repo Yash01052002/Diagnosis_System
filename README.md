@@ -12,20 +12,20 @@ something an engineer can act on.**
 > The firmware side is a separate module. This repository is the web platform:
 > backend, AI service, frontend and deployment.
 
-[![Phase](https://img.shields.io/badge/phase-2%20of%206-blue)]()
-[![Tests](https://img.shields.io/badge/tests-264%20passing-brightgreen)]()
+[![Phase](https://img.shields.io/badge/phase-2.5%20of%206-blue)]()
+[![Tests](https://img.shields.io/badge/tests-346%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ---
 
-## Current status — Phase 2 complete
+## Current status — Phase 2.5 complete
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Foundation, authentication, RBAC, audit trail | ✅ Complete |
-| **2** | Devices & crash report API, crash parser | ✅ **Complete** |
-| 2.5 | Crash analysis engine (ELF/MAP, addr2line, signatures) | ⏳ Next |
+| 2 | Devices & crash report API, crash parser | ✅ Complete |
+| **2.5** | Crash analysis engine (ELF/MAP, symbolization, signatures) | ✅ **Complete** |
 | 3 | AI diagnosis & RAG knowledge base | ⏸ Planned |
 | 4 | Frontend application | ⏸ Planned |
 | 5 | Dashboard, analytics, export, notifications | ⏸ Planned |
@@ -58,6 +58,19 @@ Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - Crash history with filtering by device, firmware, fault type, severity,
   status, task and date range
 - Triage workflow that leaves the forensic record immutable
+
+**Crash analysis** *(Phase 2.5)*
+- Upload firmware ELF/MAP artifacts; symbols indexed in-process (no cross
+  toolchain needed in the container)
+- Address → function → `file:line` symbolization via pyelftools + DWARF,
+  with an optional external `addr2line` for inlined frames
+- Stack-trace reconstruction from raw Cortex-M dumps (Thumb-bit + executable
+  range filtering, no frame pointers required)
+- Stable crash signatures over function names, so one bug groups across builds
+- Crash groups: "seen 847 times across 213 devices", with worst-severity
+  tracking and automatic regression detection
+- Late-upload re-symbolization: crashes stored as raw hex are upgraded when
+  their ELF arrives
 
 **Platform**
 - Append-only audit trail with an admin query API
@@ -104,6 +117,7 @@ Details: [`docs/architecture/phase-1.md`](docs/architecture/phase-1.md) and
 | Layer | Technology |
 |---|---|
 | Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), Alembic |
+| Crash analysis | pyelftools (in-process ELF/DWARF), optional `addr2line` |
 | Database | PostgreSQL 16 |
 | Cache / queue | Redis 7, Celery |
 | Auth | JWT (python-jose), bcrypt (passlib) |
@@ -246,8 +260,24 @@ Base path `/api/v1`. Interactive docs at `/docs`.
 | POST | `/crashes` | device key or engineer | Submit a crash report |
 | GET | `/crashes` | viewer | Search crash history |
 | GET | `/crashes/{id}` | viewer | Full report with register/stack dumps |
+| POST | `/crashes/{id}/symbolicate` | engineer | Re-run symbolization & grouping |
 | PATCH | `/crashes/{id}` | engineer | Triage: status, severity, notes |
 | DELETE | `/crashes/{id}` | admin | Delete a report |
+
+### Firmware builds & crash groups *(Phase 2.5)*
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/builds` | viewer | List uploaded ELF/MAP artifacts |
+| POST | `/builds` | engineer | Upload and index an ELF or MAP |
+| GET | `/builds/{id}` | viewer | Build metadata and index status |
+| POST | `/builds/{id}/resymbolicate` | engineer | Upgrade stored crashes for a build |
+| DELETE | `/builds/{id}` | admin | Delete a build, its symbols and file |
+| GET | `/crash-groups` | viewer | List distinct bugs |
+| GET | `/crash-groups/top` | viewer | Most frequent open bugs |
+| GET | `/crash-groups/{id}` | viewer | One group |
+| GET | `/crash-groups/{id}/crashes` | viewer | Occurrences of one bug |
+| PATCH | `/crash-groups/{id}` | engineer | Triage the underlying defect |
 
 ### Audit & health
 
@@ -281,7 +311,7 @@ Every failure returns the same envelope:
 | Role | Can do |
 |---|---|
 | `admin` | Everything, including user management, deletion and the audit trail |
-| `engineer` | Register and edit devices, issue API keys, submit and triage crashes |
+| `engineer` | Register/edit devices, issue keys, submit/triage crashes, upload builds |
 | `viewer` | Read-only access to devices, crash history and dashboards |
 
 Admins implicitly satisfy every role check, so routes declare the minimum role
@@ -327,16 +357,20 @@ cd backend && .venv/bin/python -m pytest tests/unit -v
 cd backend && .venv/bin/python -m pytest --cov=app --cov-report=html
 ```
 
-264 tests run against an in-memory SQLite database with the real schema, so no
+346 tests run against an in-memory SQLite database with the real schema, so no
 PostgreSQL server is needed:
 
 | Suite | Tests | Covers |
 |---|---|---|
 | `tests/unit/test_crash_parser.py` | 102 | Aliases, address/timestamp formats, fault classification, register and stack dumps, realistic firmware payloads |
+| `tests/unit/test_symbolizer.py` | 32 | Symbol/DWARF resolution, stack reconstruction, signatures — against a real compiled ELF |
+| `tests/unit/test_elf_parser.py` | 21 | ELF/MAP parsing, Thumb handling, address index |
 | `tests/unit/test_security.py` | 15 | bcrypt, JWT signing/expiry/tampering, opaque tokens |
 | `tests/unit/test_schemas.py` | 15 | Password policy, pagination arithmetic |
 | `tests/integration/test_devices_api.py` | 36 | Device CRUD, RBAC, tags, search, API keys, heartbeat |
 | `tests/integration/test_crashes_api.py` | 37 | Ingestion auth, parsing, duplicates, history, triage, cascade |
+| `tests/integration/test_symbolication.py` | 16 | End-to-end symbolization, grouping, degradation, regression |
+| `tests/integration/test_builds_api.py` | 13 | Build upload, indexing, replace, RBAC, deletion |
 | `tests/integration/test_auth_api.py` | 33 | Registration, login, lockout, rotation, reset, audit |
 | `tests/integration/test_users_api.py` | 17 | RBAC, search, role changes, self-service guards |
 | `tests/integration/test_health_api.py` | 9 | Probes, error envelope, middleware, OpenAPI |
@@ -357,7 +391,7 @@ make smoke                                   # http://localhost:8000
 BASE_URL=https://staging.example.com ./scripts/smoke.sh
 ```
 
-It performs 53 HTTP checks and exits non-zero on the first mismatch. It creates
+It performs 60+ HTTP checks and exits non-zero on the first mismatch. It creates
 and deletes users, so point it at development or staging, never production.
 
 Quality gates:

@@ -1,43 +1,12 @@
-"""Business-logic layer."""
+"""Business-logic layer.
 
-from app.services.audit import AuditService
-from app.services.auth import AuthService, RequestContext
-from app.services.crash import CrashService, IngestResult
-from app.services.crash_parser import (
-    PARSER_VERSION,
-    CrashParseError,
-    CrashParser,
-    ParsedCrash,
-    crash_parser,
-)
-from app.services.device import DeviceService
-from app.services.email import (
-    ConsoleEmailSender,
-    EmailSender,
-    InMemoryEmailSender,
-    OutgoingEmail,
-    SMTPEmailSender,
-    get_email_sender,
-)
-from app.services.user import UserService
+Deliberately empty of re-exports. Importing the submodules eagerly here would
+make ``from app.services.crash_parser import FIELD_ALIASES`` pull in every
+service — including ones that import from ``app.schemas`` — which creates an
+import cycle the moment a schema needs anything from a service.
 
-__all__ = [
-    "PARSER_VERSION",
-    "AuditService",
-    "AuthService",
-    "ConsoleEmailSender",
-    "CrashParseError",
-    "CrashParser",
-    "CrashService",
-    "DeviceService",
-    "EmailSender",
-    "InMemoryEmailSender",
-    "IngestResult",
-    "OutgoingEmail",
-    "ParsedCrash",
-    "RequestContext",
-    "SMTPEmailSender",
-    "UserService",
-    "crash_parser",
-    "get_email_sender",
-]
+Import the submodule you need directly::
+
+    from app.services.crash_parser import CrashParser
+    from app.services.symbolication import SymbolicationService
+"""

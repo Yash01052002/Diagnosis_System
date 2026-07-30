@@ -6,7 +6,9 @@ what Alembic autogenerate and the test fixtures rely on.
 
 from app.db.base import Base
 from app.models.audit_log import AuditAction, AuditLog
+from app.models.build import ArtifactType, BuildStatus, BuildSymbol, FirmwareBuild
 from app.models.crash import CrashReport, CrashSeverity, CrashStatus, FaultType
+from app.models.crash_group import CrashGroup, CrashGroupStatus
 from app.models.device import Device, DeviceApiKey, DeviceStatus, Tag, device_tags
 from app.models.user import (
     PasswordResetToken,
@@ -18,9 +20,14 @@ from app.models.user import (
 )
 
 __all__ = [
+    "ArtifactType",
     "AuditAction",
     "AuditLog",
     "Base",
+    "BuildStatus",
+    "BuildSymbol",
+    "CrashGroup",
+    "CrashGroupStatus",
     "CrashReport",
     "CrashSeverity",
     "CrashStatus",
@@ -28,6 +35,7 @@ __all__ = [
     "DeviceApiKey",
     "DeviceStatus",
     "FaultType",
+    "FirmwareBuild",
     "PasswordResetToken",
     "RefreshToken",
     "Role",

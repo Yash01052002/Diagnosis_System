@@ -212,6 +212,72 @@ check "GET /devices/{id}/stats" 200 "$(status "${API}/devices/${DEVICE_UUID}/sta
   -H "Authorization: Bearer ${ACCESS}")"
 echo "        total=$(field "['total_crashes']") open=$(field "['open_crashes']")"
 
+echo "── Crash analysis (Phase 2.5) ──────────────────────────"
+# Symbolization needs a build artifact. Compile a tiny ELF so the check
+# exercises the real pyelftools + DWARF path; skip if no compiler is present.
+CC="$(command -v gcc || command -v cc || true)"
+if [[ -n "${CC}" ]]; then
+  ELF_DIR="$(mktemp -d)"
+  cat > "${ELF_DIR}/fw.c" <<'CSRC'
+volatile int sink;
+int helper_add(int a, int b) { return a + b; }
+void sensor_task_body(void) { sink = helper_add(sink, 3); }
+int main(void) { sensor_task_body(); return sink; }
+CSRC
+  if "${CC}" -g -O0 -o "${ELF_DIR}/fw.elf" "${ELF_DIR}/fw.c" 2>/dev/null; then
+    # Address of helper_add+4, read straight from the compiled ELF.
+    PC_HEX="$(python3 - "${ELF_DIR}/fw.elf" <<'PYADDR'
+import sys, subprocess, re
+out = subprocess.run(["nm", sys.argv[1]], capture_output=True, text=True).stdout
+for line in out.splitlines():
+    parts = line.split()
+    if len(parts) == 3 and parts[2] == "helper_add":
+        print(hex(int(parts[0], 16) + 4)); break
+PYADDR
+)"
+    ANALYSIS_FW="analysis-${RUN_ID: -6}"
+    curl -s -X POST "${API}/devices" -H "Authorization: Bearer ${ACCESS}" \
+      -H 'Content-Type: application/json' \
+      -d "{\"device_id\":\"SYM-${RUN_ID: -6}\",\"serial_number\":\"SNSYM-${RUN_ID: -6}\",
+           \"firmware_version\":\"${ANALYSIS_FW}\",\"hardware_model\":\"STM32F407VG\"}" \
+      -o "${BODY}" >/dev/null
+    SYM_DEVICE="$(field "['id']")"
+    curl -s -X POST "${API}/devices/${SYM_DEVICE}/api-keys" \
+      -H "Authorization: Bearer ${ACCESS}" -H 'Content-Type: application/json' \
+      -d '{"name":"sym"}' -o "${BODY}" >/dev/null
+    SYM_KEY="$(field "['api_key']")"
+
+    check "POST /builds (upload ELF)" 201 "$(status -X POST "${API}/builds" \
+      -H "Authorization: Bearer ${ACCESS}" \
+      -F "firmware_version=${ANALYSIS_FW}" \
+      -F "file=@${ELF_DIR}/fw.elf;filename=fw.elf")"
+    echo "        indexed $(field "['symbol_count']") symbols, dwarf=$(field "['has_debug_info']")"
+
+    if [[ -n "${PC_HEX}" ]]; then
+      check "POST /crashes (into helper_add)" 201 "$(status -X POST "${API}/crashes" \
+        -H "X-API-Key: ${SYM_KEY}" -H 'Content-Type: application/json' \
+        -d "{\"firmware_version\":\"${ANALYSIS_FW}\",\"fault_type\":\"HardFault\",
+             \"task_name\":\"SensorTask\",\"pc\":\"${PC_HEX}\"}")"
+      SYM_CRASH="$(field "['id']")"
+      check "GET /crashes/{id} (symbolized)" 200 "$(status "${API}/crashes/${SYM_CRASH}" \
+        -H "Authorization: Bearer ${ACCESS}")"
+      echo "        top_function=$(field "['top_function']") pc=$(field "['symbolication']['pc']['display']")"
+
+      check "GET /crash-groups" 200 "$(status "${API}/crash-groups" \
+        -H "Authorization: Bearer ${ACCESS}")"
+      echo "        groups=$(field "['total']") title=$(field "['items'][0]['title']")"
+      check "GET /crash-groups/top" 200 "$(status "${API}/crash-groups/top?limit=5" \
+        -H "Authorization: Bearer ${ACCESS}")"
+    fi
+    rm -rf "${ELF_DIR}"
+  else
+    echo "  SKIP  crash analysis (could not compile the ELF fixture)"
+    rm -rf "${ELF_DIR}"
+  fi
+else
+  echo "  SKIP  crash analysis (no C compiler on PATH)"
+fi
+
 echo "── Cleanup ─────────────────────────────────────────────"
 check "DELETE api-key" 204 "$(status -X DELETE "${API}/devices/${DEVICE_UUID}/api-keys/${KEY_ID}" \
   -H "Authorization: Bearer ${ACCESS}")"

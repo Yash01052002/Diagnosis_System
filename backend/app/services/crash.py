@@ -22,6 +22,7 @@ from app.schemas.crash import CrashReportUpdate
 from app.services.audit import AuditService
 from app.services.auth import RequestContext
 from app.services.crash_parser import CrashParser, ParsedCrash
+from app.services.symbolication import SymbolicationService
 
 logger = get_logger(__name__)
 
@@ -48,12 +49,15 @@ class CrashService:
         devices: DeviceRepository,
         audit: AuditService,
         parser: CrashParser,
+        symbolication: SymbolicationService | None = None,
     ) -> None:
         self.session = session
         self.crashes = crashes
         self.devices = devices
         self.audit = audit
         self.parser = parser
+        #: Optional so the ingestion path can be tested without a symbol store.
+        self.symbolication = symbolication
 
     # ------------------------------------------------------------------
     # Ingestion
@@ -156,6 +160,23 @@ class CrashService:
         )
         await self.session.commit()
 
+        # Symbolize and group before acknowledging. It is a symbol-table lookup
+        # against an already-loaded build, not a heavy job, and a report that
+        # arrives without a group would otherwise be invisible in the grouped
+        # views until something else swept it up.
+        if self.symbolication is not None:
+            try:
+                await self.symbolication.symbolicate_report(report)
+            except Exception as exc:  # noqa: BLE001
+                # Ingestion must never fail because symbolization did: the
+                # report is already stored, and it can be symbolized later.
+                logger.warning(
+                    "crash.symbolication_failed",
+                    crash_id=str(report.id),
+                    error=str(exc),
+                )
+                await self.session.rollback()
+
         logger.info(
             "crash.ingested",
             crash_id=str(report.id),
@@ -254,6 +275,7 @@ class CrashService:
         *,
         device_id: uuid.UUID | None = None,
         device_identifier: str | None = None,
+        group_id: uuid.UUID | None = None,
         firmware_version: str | None = None,
         build_version: str | None = None,
         fault_type: str | None = None,
@@ -264,6 +286,7 @@ class CrashService:
         occurred_to: datetime | None = None,
         query: str | None = None,
         diagnosed: bool | None = None,
+        symbolicated: bool | None = None,
         offset: int = 0,
         limit: int = 20,
         sort: str = "-occurred_at",
@@ -272,6 +295,7 @@ class CrashService:
         return await self.crashes.search(
             device_id=device_id,
             device_identifier=device_identifier,
+            group_id=group_id,
             firmware_version=firmware_version,
             build_version=build_version,
             fault_type=fault_type,
@@ -282,6 +306,7 @@ class CrashService:
             occurred_to=occurred_to,
             query=query,
             diagnosed=diagnosed,
+            symbolicated=symbolicated,
             offset=offset,
             limit=limit,
             sort=sort,

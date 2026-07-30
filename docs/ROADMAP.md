@@ -7,8 +7,8 @@ sample requests and a Docker Compose stack that starts.
 |---|---|---|
 | 1 | Foundation, Authentication & RBAC | ✅ Complete |
 | 2 | Devices & Crash Report API | ✅ Complete |
-| 2.5 | Crash Analysis Engine (ELF/MAP, symbolization) | ⏳ Next |
-| 3 | AI Diagnosis & RAG Knowledge Base | ⏸ Planned |
+| 2.5 | Crash Analysis Engine (ELF/MAP, symbolization) | ✅ Complete |
+| 3 | AI Diagnosis & RAG Knowledge Base | ⏳ Next |
 | 4 | Frontend Application | ⏸ Planned |
 | 5 | Dashboard, Analytics, Export & Notifications | ⏸ Planned |
 | 6 | Production Hardening & CI/CD | ⏸ Planned |
@@ -53,26 +53,33 @@ Details: [`architecture/phase-2.md`](architecture/phase-2.md).
 
 ---
 
-## Phase 2.5 — Crash Analysis Engine ⏳
+## Phase 2.5 — Crash Analysis Engine ✅
 
-**Deliverables**
+**Delivered**
 
-- ELF/MAP file upload per firmware build, stored and indexed by build version.
-- ELF parser (`pyelftools`) extracting the symbol table and section layout.
-- `arm-none-eabi-addr2line` integration with a pure-Python fallback.
-- Address → function → source file:line resolution for PC, LR and every stack
-  frame.
-- Stack-trace reconstruction from the raw stack dump: candidate return-address
-  scanning, filtering against executable sections, frame ordering.
-- Crash signature generation — a stable hash over the normalized top frames,
-  fault type and task, so the same bug always produces the same signature.
-- Duplicate detection: new crashes are linked to an existing crash group;
-  the UI shows "seen 47 times across 12 devices" instead of 47 separate rows.
-- Symbolization runs as a Celery task and degrades gracefully when no ELF has
-  been uploaded for that build.
+- `firmware_builds`, `build_symbols` and `crash_groups` tables (migration
+  `0003`); crash reports gained symbolication, signature and grouping columns.
+- ELF/MAP upload and in-process indexing via `pyelftools` — no cross toolchain
+  in the container. Type detected from content, not filename; re-upload
+  replaces.
+- Symbolization: address → function+offset → `file:line` from DWARF, with an
+  optional external `addr2line` for inlined frames. Degrades to names-only
+  (stripped build / MAP) and to raw hex (no build), never failing.
+- ARM Thumb-bit handling, made architecture-aware after the x86 test fixture
+  exposed that unconditional normalization corrupts non-ARM addresses.
+- Stack-trace reconstruction by scanning: Thumb-bit + executable-range
+  filtering, innermost-first ordering, adjacent-duplicate collapse.
+- Stable crash signatures over function names (clone suffixes stripped), with a
+  build-scoped `pc + firmware_version` fallback when unsymbolized.
+- Crash groups with transactional counters, worst-severity tracking and
+  automatic regression detection; `/crash-groups`, `/crash-groups/top`,
+  per-group crash listing and triage.
+- Inline symbolization on ingest, plus `symbolicate_crash_report` and
+  `resymbolicate_firmware` Celery tasks and a resymbolicate endpoint for late
+  uploads.
+- 82 new tests (346 total): 53 unit against a real compiled ELF, 29 integration.
 
-**Acceptance** — uploading the ELF for a build turns a raw PC value into
-`vTaskDelay at tasks.c:1432`, and two identical crashes collapse into one group.
+Details: [`architecture/phase-2.5.md`](architecture/phase-2.5.md).
 
 ---
 

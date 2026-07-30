@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import secrets
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import AnyHttpUrl, BeforeValidator, EmailStr, Field, PostgresDsn, computed_field
@@ -87,6 +88,25 @@ class Settings(BaseSettings):
     EMAILS_FROM_EMAIL: EmailStr = "no-reply@blackbox.example.com"
     EMAILS_FROM_NAME: str = "BlackBox"
 
+    # -- Firmware artifacts (Phase 2.5) ----------------------------------
+    #: Where uploaded ELF/MAP files live. Mount this as a volume in Docker:
+    #: symbols are re-readable from the database, but source line lookup needs
+    #: the original file.
+    ARTIFACT_STORAGE_DIR: str = "./data/artifacts"
+    MAX_ARTIFACT_SIZE_MB: int = 256
+    #: Optional external addr2line (e.g. "arm-none-eabi-addr2line"). Purely an
+    #: enhancement - it resolves inlined frames. Symbolization works without it
+    #: via pyelftools, so no cross toolchain is required in the container.
+    ADDR2LINE_BINARY: str | None = None
+    #: Symbols indexed per build. A firmware image with more than this is
+    #: almost certainly a desktop binary uploaded by mistake.
+    MAX_INDEXED_SYMBOLS: int = 200_000
+    #: Stack words scanned when reconstructing a call chain.
+    MAX_STACK_FRAMES: int = 32
+    #: Cortex-M is Thumb-only, so return addresses have bit 0 set. Disable this
+    #: only for a non-Thumb target, where it would filter out every frame.
+    REQUIRE_THUMB_BIT: bool = True
+
     # -- Frontend --------------------------------------------------------
     FRONTEND_URL: AnyHttpUrl = AnyHttpUrl("http://localhost:5173")
 
@@ -135,6 +155,19 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def artifact_dir(self) -> Path:
+        """Artifact storage root, created on first access."""
+        path = Path(self.ARTIFACT_STORAGE_DIR).expanduser()
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def max_artifact_bytes(self) -> int:
+        return self.MAX_ARTIFACT_SIZE_MB * 1024 * 1024
 
 
 @lru_cache
