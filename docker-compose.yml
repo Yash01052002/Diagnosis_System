@@ -130,6 +130,28 @@ services:
       backend: { condition: service_started }
     networks: [blackbox]
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: blackbox-frontend
+    restart: unless-stopped
+    # nginx serves the SPA and reverse-proxies /api to the backend, so the app
+    # and API share an origin — no CORS, and the frontend's relative API URLs
+    # work unchanged in development and production.
+    depends_on:
+      backend: { condition: service_started }
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [blackbox]
+
   # Optional vector store for the RAG engine. The default stack uses the
   # database-backed vector store and needs nothing here; start Chroma only when
   # running VECTOR_STORE=chroma:
