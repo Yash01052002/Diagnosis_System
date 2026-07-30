@@ -15,6 +15,7 @@ from typing import Any
 from pydantic import AliasChoices, ConfigDict, Field, model_validator
 
 from app.models.crash import CrashSeverity, CrashStatus, FaultType
+from app.schemas.build import CrashGroupSummary, SymbolicationRead
 from app.schemas.common import BaseSchema
 from app.schemas.device import DeviceSummary
 from app.services.crash_parser import FIELD_ALIASES
@@ -160,6 +161,12 @@ class CrashReportRead(BaseSchema):
     status: CrashStatus
     notes: str | None = None
 
+    symbolication: SymbolicationRead | None = None
+    symbolicated_at: datetime | None = None
+    top_function: str | None = None
+    crash_signature: str | None = None
+    group: CrashGroupSummary | None = None
+
     ai_diagnosis: str | None = None
     suggested_fix: str | None = None
     confidence_score: float | None = None
@@ -190,6 +197,9 @@ class CrashReportListItem(BaseSchema):
     program_counter: int | None = None
     severity: CrashSeverity
     status: CrashStatus
+    top_function: str | None = None
+    crash_signature: str | None = None
+    group_id: uuid.UUID | None = None
     confidence_score: float | None = None
 
 

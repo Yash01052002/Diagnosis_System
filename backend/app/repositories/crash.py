@@ -20,7 +20,10 @@ OPEN_STATUSES = (CrashStatus.NEW, CrashStatus.TRIAGED, CrashStatus.INVESTIGATING
 class CrashReportRepository(BaseRepository[CrashReport]):
     model = CrashReport
 
-    _EAGER = (selectinload(CrashReport.device).selectinload(Device.tags),)
+    _EAGER = (
+        selectinload(CrashReport.device).selectinload(Device.tags),
+        selectinload(CrashReport.group),
+    )
 
     async def get_full(self, crash_id: uuid.UUID) -> CrashReport | None:
         stmt = select(CrashReport).where(CrashReport.id == crash_id).options(*self._EAGER)
@@ -31,6 +34,7 @@ class CrashReportRepository(BaseRepository[CrashReport]):
         *,
         device_id: uuid.UUID | None = None,
         device_identifier: str | None = None,
+        group_id: uuid.UUID | None = None,
         firmware_version: str | None = None,
         build_version: str | None = None,
         fault_type: str | None = None,
@@ -41,6 +45,7 @@ class CrashReportRepository(BaseRepository[CrashReport]):
         occurred_to: datetime | None = None,
         query: str | None = None,
         diagnosed: bool | None = None,
+        symbolicated: bool | None = None,
         offset: int = 0,
         limit: int = 20,
         sort: str = "-occurred_at",
@@ -50,6 +55,8 @@ class CrashReportRepository(BaseRepository[CrashReport]):
 
         if device_id:
             conditions.append(CrashReport.device_id == device_id)
+        if group_id:
+            conditions.append(CrashReport.group_id == group_id)
         if firmware_version:
             conditions.append(CrashReport.firmware_version == firmware_version)
         if build_version:
@@ -66,6 +73,12 @@ class CrashReportRepository(BaseRepository[CrashReport]):
             conditions.append(CrashReport.occurred_at >= occurred_from)
         if occurred_to:
             conditions.append(CrashReport.occurred_at <= occurred_to)
+        if symbolicated is not None:
+            conditions.append(
+                CrashReport.symbolicated_at.isnot(None)
+                if symbolicated
+                else CrashReport.symbolicated_at.is_(None)
+            )
         if diagnosed is not None:
             conditions.append(
                 CrashReport.ai_diagnosis.isnot(None)
@@ -80,6 +93,7 @@ class CrashReportRepository(BaseRepository[CrashReport]):
                     func.lower(func.coalesce(CrashReport.exception_type, "")).like(pattern),
                     func.lower(func.coalesce(CrashReport.notes, "")).like(pattern),
                     func.lower(func.coalesce(CrashReport.ai_diagnosis, "")).like(pattern),
+                    func.lower(func.coalesce(CrashReport.top_function, "")).like(pattern),
                 )
             )
 
@@ -114,6 +128,7 @@ class CrashReportRepository(BaseRepository[CrashReport]):
             "fault_type": CrashReport.fault_type,
             "status": CrashReport.status,
             "confidence_score": CrashReport.confidence_score,
+            "top_function": CrashReport.top_function,
         }
         column = allowed.get(name, CrashReport.occurred_at)
         return column.desc() if descending else column.asc()

@@ -22,7 +22,9 @@ from app.db.session import get_db
 from app.models.device import Device
 from app.models.user import RoleName, User
 from app.repositories.audit_log import AuditLogRepository
+from app.repositories.build import BuildSymbolRepository, FirmwareBuildRepository
 from app.repositories.crash import CrashReportRepository
+from app.repositories.crash_group import CrashGroupRepository
 from app.repositories.device import (
     DeviceApiKeyRepository,
     DeviceRepository,
@@ -37,10 +39,12 @@ from app.repositories.user import (
 from app.schemas.common import PaginationParams
 from app.services.audit import AuditService
 from app.services.auth import AuthService, RequestContext
+from app.services.build import BuildService
 from app.services.crash import CrashService
 from app.services.crash_parser import CrashParser, crash_parser
 from app.services.device import DeviceService
 from app.services.email import EmailSender, get_email_sender
+from app.services.symbolication import SymbolicationService
 from app.services.user import UserService
 
 #: ``auto_error=False`` so a missing header raises our own 401 envelope.
@@ -108,6 +112,18 @@ def get_device_api_key_repository(session: SessionDep) -> DeviceApiKeyRepository
 
 def get_crash_repository(session: SessionDep) -> CrashReportRepository:
     return CrashReportRepository(session)
+
+
+def get_build_repository(session: SessionDep) -> FirmwareBuildRepository:
+    return FirmwareBuildRepository(session)
+
+
+def get_build_symbol_repository(session: SessionDep) -> BuildSymbolRepository:
+    return BuildSymbolRepository(session)
+
+
+def get_crash_group_repository(session: SessionDep) -> CrashGroupRepository:
+    return CrashGroupRepository(session)
 
 
 # ---------------------------------------------------------------------------
@@ -184,15 +200,51 @@ def get_device_service(
     )
 
 
+def get_build_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    builds: Annotated[FirmwareBuildRepository, Depends(get_build_repository)],
+    symbols: Annotated[BuildSymbolRepository, Depends(get_build_symbol_repository)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+) -> BuildService:
+    return BuildService(
+        session=session, builds=builds, symbols=symbols, audit=audit, settings=settings
+    )
+
+
+def get_symbolication_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    crashes: Annotated[CrashReportRepository, Depends(get_crash_repository)],
+    builds: Annotated[FirmwareBuildRepository, Depends(get_build_repository)],
+    symbols: Annotated[BuildSymbolRepository, Depends(get_build_symbol_repository)],
+    groups: Annotated[CrashGroupRepository, Depends(get_crash_group_repository)],
+) -> SymbolicationService:
+    return SymbolicationService(
+        session=session,
+        crashes=crashes,
+        builds=builds,
+        symbols=symbols,
+        groups=groups,
+        settings=settings,
+    )
+
+
 def get_crash_service(
     session: SessionDep,
     crashes: Annotated[CrashReportRepository, Depends(get_crash_repository)],
     devices: Annotated[DeviceRepository, Depends(get_device_repository)],
     audit: Annotated[AuditService, Depends(get_audit_service)],
     parser: Annotated[CrashParser, Depends(get_crash_parser)],
+    symbolication: Annotated[SymbolicationService, Depends(get_symbolication_service)],
 ) -> CrashService:
     return CrashService(
-        session=session, crashes=crashes, devices=devices, audit=audit, parser=parser
+        session=session,
+        crashes=crashes,
+        devices=devices,
+        audit=audit,
+        parser=parser,
+        symbolication=symbolication,
     )
 
 
@@ -201,6 +253,8 @@ UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 AuditServiceDep = Annotated[AuditService, Depends(get_audit_service)]
 DeviceServiceDep = Annotated[DeviceService, Depends(get_device_service)]
 CrashServiceDep = Annotated[CrashService, Depends(get_crash_service)]
+BuildServiceDep = Annotated[BuildService, Depends(get_build_service)]
+SymbolicationServiceDep = Annotated[SymbolicationService, Depends(get_symbolication_service)]
 
 
 # ---------------------------------------------------------------------------

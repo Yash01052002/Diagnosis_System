@@ -35,7 +35,7 @@ uv venv .venv && uv pip install --python .venv/bin/python -e ".[dev]"
 ## Quality gates
 
 ```bash
-.venv/bin/python -m pytest              # 264 tests, in-memory SQLite
+.venv/bin/python -m pytest              # 346 tests, in-memory SQLite
 .venv/bin/python -m pytest --cov=app --cov-report=term-missing
 .venv/bin/python -m ruff check app tests alembic
 .venv/bin/python -m ruff format --check app tests alembic

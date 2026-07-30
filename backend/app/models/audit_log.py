@@ -35,10 +35,17 @@ class AuditAction(StrEnum):
     DEVICE_KEY_REVOKED = "device.key_revoked"
     DEVICE_KEY_REJECTED = "device.key_rejected"
 
+    BUILD_UPLOADED = "build.uploaded"
+    BUILD_DELETED = "build.deleted"
+    BUILD_REINDEXED = "build.reindexed"
+
     CRASH_RECEIVED = "crash.received"
     CRASH_REJECTED = "crash.rejected"
     CRASH_UPDATED = "crash.updated"
     CRASH_DELETED = "crash.deleted"
+    CRASH_SYMBOLICATED = "crash.symbolicated"
+
+    CRASH_GROUP_UPDATED = "crash_group.updated"
 
 
 class AuditLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):

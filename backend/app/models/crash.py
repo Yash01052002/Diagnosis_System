@@ -21,6 +21,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import GUID, Base, JSONType, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
+    from app.models.build import FirmwareBuild
+    from app.models.crash_group import CrashGroup
     from app.models.device import Device
 
 
@@ -118,6 +120,23 @@ class CrashReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(Text)
 
+    # -- symbolization & grouping (Phase 2.5) --------------------------
+    #: Stable hash identifying which bug this is. Null until symbolization
+    #: has run (or been attempted without symbols).
+    crash_signature: Mapped[str | None] = mapped_column(String(64), index=True)
+    group_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("crash_groups.id", ondelete="SET NULL"), index=True
+    )
+    #: The build whose symbols were used, when one was found.
+    build_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("firmware_builds.id", ondelete="SET NULL"), index=True
+    )
+    #: Resolved frames: {"frames": [...], "pc": {...}, "lr": {...}}.
+    symbolication: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
+    symbolicated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Innermost resolved function, denormalised for filtering and display.
+    top_function: Mapped[str | None] = mapped_column(String(255), index=True)
+
     # -- diagnosis (Phase 3) -------------------------------------------
     ai_diagnosis: Mapped[str | None] = mapped_column(Text)
     suggested_fix: Mapped[str | None] = mapped_column(Text)
@@ -126,6 +145,12 @@ class CrashReport(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     diagnosed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     device: Mapped[Device] = relationship(back_populates="crash_reports", lazy="selectin")
+    group: Mapped[CrashGroup | None] = relationship(back_populates="reports", lazy="selectin")
+    build: Mapped[FirmwareBuild | None] = relationship(lazy="noload")
+
+    @property
+    def is_symbolicated(self) -> bool:
+        return self.symbolicated_at is not None
 
     @property
     def is_diagnosed(self) -> bool:

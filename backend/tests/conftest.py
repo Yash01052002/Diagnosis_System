@@ -8,9 +8,13 @@ touches the network (email) is replaced with an in-memory double.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from itertools import count
+from pathlib import Path
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -32,6 +36,8 @@ from app.db.base import Base  # noqa: E402
 from app.db.session import enable_sqlite_foreign_keys, get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import (  # noqa: E402
+    BuildStatus,
+    BuildSymbol,
     CrashReport,
     CrashSeverity,
     CrashStatus,
@@ -39,18 +45,20 @@ from app.models import (  # noqa: E402
     DeviceApiKey,
     DeviceStatus,
     FaultType,
+    FirmwareBuild,
     Role,
     RoleName,
     Tag,
     User,
 )
+from app.services.elf_parser import ElfParser  # noqa: E402
 from app.services.email import InMemoryEmailSender  # noqa: E402
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest.fixture(scope="session")
-def settings() -> Settings:
+def settings(tmp_path_factory) -> Settings:  # type: ignore[no-untyped-def]
     """Settings pinned to the test database and fast token lifetimes."""
     get_settings.cache_clear()
     return Settings(
@@ -63,6 +71,11 @@ def settings() -> Settings:
         EMAIL_BACKEND="console",
         LOG_JSON=False,
         LOG_LEVEL="WARNING",
+        # Isolated artifact storage so uploads never touch the repo tree.
+        ARTIFACT_STORAGE_DIR=str(tmp_path_factory.mktemp("artifacts")),
+        # The fixture ELF is x86-64, which has no Thumb bit; requiring one
+        # would filter out every reconstructed stack frame.
+        REQUIRE_THUMB_BIT=False,
     )
 
 
@@ -346,3 +359,143 @@ def crash_payload(**overrides: object) -> dict[str, object]:
     }
     payload.update(overrides)
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Firmware build fixtures
+# ---------------------------------------------------------------------------
+#: A small C program compiled with debug info. Using a real ELF rather than a
+#: hand-rolled fake is deliberate: the symbol table, section flags and DWARF
+#: line program are exactly what pyelftools will meet in production, and a
+#: fixture that only resembled one would hide the bugs worth catching.
+_FIXTURE_SOURCE = """
+#include <stdint.h>
+volatile int sink;
+int helper_add(int a, int b) { return a + b; }
+int compute_checksum(const uint8_t *d, int n) {
+    int s = 0;
+    for (int i = 0; i < n; i++) s = helper_add(s, d[i]);
+    return s;
+}
+void sensor_task_body(void) { sink = compute_checksum((const uint8_t*)"abc", 3); }
+int main(void) { sensor_task_body(); return sink; }
+"""
+
+
+@pytest.fixture(scope="session")
+def elf_fixture(tmp_path_factory) -> Path:  # type: ignore[no-untyped-def]
+    """Compile a real ELF once per session.
+
+    Skips rather than fails when no C compiler is available, so the rest of
+    the suite still runs on a machine without build tools.
+    """
+    compiler = shutil.which("gcc") or shutil.which("cc")
+    if compiler is None:
+        pytest.skip("no C compiler available to build the ELF fixture")
+
+    directory = tmp_path_factory.mktemp("elf")
+    source = directory / "fw.c"
+    source.write_text(_FIXTURE_SOURCE)
+    elf = directory / "fw.elf"
+
+    result = subprocess.run(
+        [compiler, "-g", "-O0", "-o", str(elf), str(source)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0 or not elf.is_file():
+        pytest.skip(f"could not compile the ELF fixture: {result.stderr[:200]}")
+    return elf
+
+
+@pytest.fixture(scope="session")
+def elf_symbols(elf_fixture: Path) -> dict[str, int]:
+    """``{function_name: address}`` for the fixture's own functions."""
+    info = ElfParser().parse(elf_fixture)
+    return {
+        symbol.name: symbol.address
+        for symbol in info.function_symbols
+        if symbol.name in {"helper_add", "compute_checksum", "sensor_task_body", "main"}
+    }
+
+
+@pytest.fixture
+def artifact_settings(settings: Settings, tmp_path: Path) -> Settings:
+    """Settings pointed at a per-test artifact directory."""
+    return settings.model_copy(
+        update={
+            "ARTIFACT_STORAGE_DIR": str(tmp_path / "artifacts"),
+            # The fixture ELF is x86-64, which has no Thumb bit; requiring one
+            # would filter out every stack candidate.
+            "REQUIRE_THUMB_BIT": False,
+        }
+    )
+
+
+@pytest_asyncio.fixture
+async def build_factory(db_session: AsyncSession, elf_fixture: Path, tmp_path: Path):  # type: ignore[no-untyped-def]
+    """Create an indexed FirmwareBuild backed by the real ELF."""
+
+    async def create_build(
+        *,
+        firmware_version: str = "1.4.2",
+        build_version: str | None = "a1b2c3d",
+        status: str = BuildStatus.INDEXED,
+        with_symbols: bool = True,
+        copy_artifact: bool = True,
+    ) -> FirmwareBuild:
+        info = ElfParser().parse(elf_fixture)
+
+        storage = tmp_path / "artifacts"
+        storage.mkdir(parents=True, exist_ok=True)
+        stored = storage / f"{uuid4()}.elf"
+        if copy_artifact:
+            shutil.copy(elf_fixture, stored)
+
+        build = FirmwareBuild(
+            firmware_version=firmware_version,
+            build_version=build_version,
+            artifact_type="elf",
+            original_filename="fw.elf",
+            storage_path=str(stored),
+            file_size=elf_fixture.stat().st_size,
+            sha256="0" * 64,
+            status=status,
+            arch=info.arch,
+            has_debug_info=info.has_dwarf,
+            entry_point=info.entry_point,
+            symbol_count=len(info.symbols) if with_symbols else 0,
+            sections={
+                "sections": [
+                    {
+                        "name": section.name,
+                        "start": section.start,
+                        "size": section.size,
+                        "executable": section.executable,
+                    }
+                    for section in info.sections
+                ]
+            },
+        )
+        db_session.add(build)
+        await db_session.flush()
+
+        if with_symbols:
+            db_session.add_all(
+                [
+                    BuildSymbol(
+                        build_id=build.id,
+                        name=symbol.name,
+                        address=symbol.address,
+                        size=symbol.size,
+                        kind=symbol.kind,
+                    )
+                    for symbol in info.symbols
+                ]
+            )
+        await db_session.commit()
+        await db_session.refresh(build)
+        return build
+
+    return create_build

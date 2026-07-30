@@ -19,9 +19,11 @@ from app.api.deps import (
     IngestPrincipalDep,
     PaginationDep,
     RequestContextDep,
+    SymbolicationServiceDep,
     require_viewer,
 )
 from app.models.crash import CrashSeverity, CrashStatus, FaultType
+from app.schemas.build import SymbolicationRead
 from app.schemas.common import ErrorResponse, Page
 from app.schemas.crash import (
     CrashAccepted,
@@ -97,6 +99,7 @@ async def list_crashes(
     service: CrashServiceDep,
     pagination: PaginationDep,
     device_id: Annotated[uuid.UUID | None, Query(description="Internal device id")] = None,
+    group_id: Annotated[uuid.UUID | None, Query(description="Only crashes in this group")] = None,
     device: Annotated[str | None, Query(description="Device identifier or serial number")] = None,
     firmware_version: Annotated[str | None, Query(description="Exact firmware version")] = None,
     build_version: Annotated[str | None, Query(description="Exact build version")] = None,
@@ -110,6 +113,9 @@ async def list_crashes(
     occurred_to: Annotated[datetime | None, Query(description="Occurred at or before")] = None,
     diagnosed: Annotated[
         bool | None, Query(description="Only crashes with (or without) an AI diagnosis")
+    ] = None,
+    symbolicated: Annotated[
+        bool | None, Query(description="Only crashes that have (or lack) symbolization")
     ] = None,
     q: Annotated[
         str | None, Query(description="Search task, exception, notes or diagnosis")
@@ -132,6 +138,7 @@ async def list_crashes(
     items, total = await service.search(
         device_id=device_id,
         device_identifier=device,
+        group_id=group_id,
         firmware_version=firmware_version,
         build_version=build_version,
         fault_type=fault_type,
@@ -141,6 +148,7 @@ async def list_crashes(
         occurred_from=occurred_from,
         occurred_to=occurred_to,
         diagnosed=diagnosed,
+        symbolicated=symbolicated,
         query=q,
         sort=sort,
         offset=pagination.offset,
@@ -184,6 +192,27 @@ async def update_crash(
     """
     report = await service.update(crash_id, payload, actor=engineer, ctx=ctx)
     return CrashReportRead.model_validate(report)
+
+
+@router.post(
+    "/{crash_id}/symbolicate",
+    response_model=SymbolicationRead,
+    summary="Symbolize a crash report",
+    responses={404: {"model": ErrorResponse, "description": "Crash report not found"}},
+)
+async def symbolicate_crash(
+    crash_id: uuid.UUID,
+    engineer: EngineerUser,
+    service: SymbolicationServiceDep,
+) -> SymbolicationRead:
+    """Re-run symbolization and regrouping for one report.
+
+    Safe to repeat. Running it after the matching ELF is uploaded upgrades a
+    report that was stored as raw hex, and moves it into the group its symbols
+    now say it belongs to.
+    """
+    outcome = await service.symbolicate(crash_id)
+    return SymbolicationRead.model_validate(outcome.result.to_dict())
 
 
 @router.delete(
