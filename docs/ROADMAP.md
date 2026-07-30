@@ -9,8 +9,8 @@ sample requests and a Docker Compose stack that starts.
 | 2 | Devices & Crash Report API | ✅ Complete |
 | 2.5 | Crash Analysis Engine (ELF/MAP, symbolization) | ✅ Complete |
 | 3 | AI Diagnosis & RAG Knowledge Base | ✅ Complete |
-| 4 | Frontend Application | ⏳ Next |
-| 5 | Dashboard, Analytics, Export & Notifications | ⏸ Planned |
+| 4 | Frontend Application | ✅ Complete |
+| 5 | Dashboard, Analytics, Export & Notifications | ⏳ Next |
 | 6 | Production Hardening & CI/CD | ⏸ Planned |
 
 ---
@@ -124,13 +124,35 @@ Details: [`architecture/phase-3.md`](architecture/phase-3.md).
 
 ---
 
-## Phase 4 — Frontend Application
+## Phase 4 — Frontend Application ✅
 
-React 19 + TypeScript + Vite + Tailwind, React Query, React Router, Axios with
-token-refresh interceptors, protected routes by role, dark/light theme,
-responsive layout. Screens: login, register, forgot/reset password, device
-list and detail, crash list and detail with symbolized stack trace, user
-administration.
+**Delivered**
+
+- React 19 + TypeScript (strict) + Vite 6 + Tailwind CSS v4 SPA, with TanStack
+  Query for server state, React Router v7, and Axios.
+- Axios client with a **transparent, single-flighted refresh-on-401**: an
+  expired access token is rotated via the refresh token and the original
+  request replayed; a failed refresh clears the session and routes to login.
+- **Role-aware** routing and controls (`admin` > `engineer` > `viewer`), mirror
+  of the backend's `require_roles`; route guards `RequireAuth`/`RequireRole`.
+- Screens: login, register, forgot/reset password, profile (update + change
+  password); device list and detail (stats, API keys, edit, delete, recent
+  crashes); crash list and detail (**symbolized stack trace + AI diagnosis
+  panel** with cited sources and history); crash groups list and detail with
+  triage; knowledge base (stats, semantic search, add/upload documents,
+  delete); user administration (admin).
+- Dark/light theme over semantic CSS-variable tokens with a no-flash pre-paint
+  script; responsive from phone to desktop; loading/empty/error states on every
+  data view.
+- TS types hand-mirrored from the Pydantic schemas so a contract change is a
+  compile error. 20 Vitest tests (formatting, password policy, token store, API
+  error unwrapping, login render). Type-check, ESLint and production build all
+  clean.
+- Multi-stage `Dockerfile` (Node build → nginx) that serves the static bundle
+  and reverse-proxies `/api` to the backend; `frontend` service added to
+  `docker-compose.yml`.
+
+Details: [`architecture/phase-4.md`](architecture/phase-4.md).
 
 ---
 

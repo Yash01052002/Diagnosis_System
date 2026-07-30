@@ -12,22 +12,24 @@ something an engineer can act on.**
 > The firmware side is a separate module. This repository is the web platform:
 > backend, AI service, frontend and deployment.
 
-[![Phase](https://img.shields.io/badge/phase-3%20of%206-blue)]()
-[![Tests](https://img.shields.io/badge/tests-385%20passing-brightgreen)]()
+[![Phase](https://img.shields.io/badge/phase-4%20of%206-blue)]()
+[![Backend tests](https://img.shields.io/badge/backend%20tests-385%20passing-brightgreen)]()
+[![Frontend tests](https://img.shields.io/badge/frontend%20tests-20%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
+[![React](https://img.shields.io/badge/react-19-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ---
 
-## Current status — Phase 3 complete
+## Current status — Phase 4 complete
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Foundation, authentication, RBAC, audit trail | ✅ Complete |
 | 2 | Devices & crash report API, crash parser | ✅ Complete |
 | 2.5 | Crash analysis engine (ELF/MAP, symbolization, signatures) | ✅ Complete |
-| **3** | AI diagnosis & RAG knowledge base | ✅ **Complete** |
-| 4 | Frontend application | ⏸ Planned |
+| 3 | AI diagnosis & RAG knowledge base | ✅ Complete |
+| **4** | Frontend application (React SPA) | ✅ **Complete** |
 | 5 | Dashboard, analytics, export, notifications | ⏸ Planned |
 | 6 | Production hardening & CI/CD | ⏸ Planned |
 
@@ -89,6 +91,18 @@ Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
   deterministic offline default (template LLM + hashing embeddings + database
   vector store) that needs no API key and no extra services
 
+**Web application** *(Phase 4)*
+- React 19 + TypeScript SPA over the whole API, role-aware throughout
+  (`admin` > `engineer` > `viewer`) in both routing and controls
+- Axios client with transparent, single-flighted access-token refresh on 401,
+  and a session that survives reloads
+- Device and crash management, **crash detail with the symbolized stack trace
+  and an inline AI diagnosis panel** (cited sources, confidence, history)
+- Crash-group triage, knowledge-base management with semantic search, and user
+  administration
+- Dark/light theme, responsive layout, served by nginx which also proxies the
+  API so the SPA and backend share an origin
+
 **Platform**
 - Append-only audit trail with an admin query API
 - Liveness/readiness probes, structured JSON logs with request ids
@@ -106,9 +120,9 @@ Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
                                    │
    ┌───────────────┐    ┌──────────▼───────────┐    ┌──────────────────┐
    │  React SPA    │───▶│   FastAPI backend    │───▶│   PostgreSQL     │
-   │  (Phase 4)    │◀───│  auth · RBAC · REST  │◀───│   users, devices │
-   └───────────────┘    └──────────┬───────────┘    │   crashes, audit │
-                                   │                └──────────────────┘
+   │  nginx (Ph.4) │◀───│  auth · RBAC · REST  │◀───│   users, devices │
+   │  proxies /api │    └──────────┬───────────┘    │   crashes, audit │
+   └───────────────┘               │                └──────────────────┘
                         ┌──────────▼───────────┐    ┌──────────────────┐
                         │   Celery workers     │───▶│  Redis (broker)  │
                         │  parse · symbolize   │    └──────────────────┘
@@ -126,10 +140,14 @@ The backend follows clean architecture — **API → service → repository →
 model** — so business rules stay testable and the LLM provider, email
 transport and vector store are all swappable behind interfaces.
 
+The frontend is a separate React SPA (`frontend/`) served by nginx, which also
+reverse-proxies `/api` to the backend so the two share an origin.
+
 Details: [`phase-1`](docs/architecture/phase-1.md),
 [`phase-2`](docs/architecture/phase-2.md),
-[`phase-2.5`](docs/architecture/phase-2.5.md) and
-[`phase-3`](docs/architecture/phase-3.md).
+[`phase-2.5`](docs/architecture/phase-2.5.md),
+[`phase-3`](docs/architecture/phase-3.md) and
+[`phase-4`](docs/architecture/phase-4.md).
 
 ---
 
@@ -144,9 +162,9 @@ Details: [`phase-1`](docs/architecture/phase-1.md),
 | Auth | JWT (python-jose), bcrypt (passlib) |
 | Logging | structlog (JSON in production) |
 | AI diagnosis *(Phase 3)* | RAG built directly (no LangChain), NumPy cosine retrieval; OpenAI / Ollama / offline defaults; ChromaDB optional — all provider-swappable |
-| Frontend *(Phase 4)* | React, TypeScript, Vite, Tailwind, React Query, Recharts |
+| Frontend *(Phase 4)* | React 19, TypeScript, Vite 6, Tailwind CSS v4, TanStack Query, React Router, Axios |
 | Deployment | Docker, Docker Compose, Nginx |
-| Quality | pytest, pytest-asyncio, ruff, mypy |
+| Quality | pytest, pytest-asyncio, ruff, mypy (backend); Vitest, ESLint, tsc (frontend) |
 
 ---
 
@@ -162,11 +180,13 @@ docker compose up -d --build
 ```
 
 The backend container waits for PostgreSQL, applies migrations, seeds the roles
-and the bootstrap admin, then serves on **http://localhost:8000**.
+and the bootstrap admin, then serves on **http://localhost:8000**. The
+**web application** is served by nginx on **http://localhost:3000**.
 
 ```bash
 curl -s http://localhost:8000/health | jq
-open http://localhost:8000/docs
+open http://localhost:3000        # the SPA
+open http://localhost:8000/docs   # API docs
 ```
 
 ### Option B — Local backend, Docker infrastructure
@@ -178,6 +198,14 @@ make up         # start postgres + redis only
 make migrate    # apply migrations
 make seed       # create roles + bootstrap admin
 make serve      # uvicorn with autoreload on :8000
+```
+
+### Frontend (local dev)
+
+```bash
+cd frontend
+npm install
+npm run dev     # http://localhost:5173, proxies /api to the backend on :8000
 ```
 
 ### First login
@@ -215,7 +243,16 @@ blackbox/
 │   ├── alembic/             migrations
 │   ├── tests/               unit + integration suites
 │   └── Dockerfile
-├── frontend/                React SPA                      (Phase 4)
+├── frontend/                React 19 + TS SPA              (Phase 4)
+│   ├── src/
+│   │   ├── api/            axios client, typed endpoints, TS types
+│   │   ├── auth/           AuthProvider, context, useAuth
+│   │   ├── app/            router, route guards, app shell
+│   │   ├── components/     reusable UI (Button, Card, Table, Modal…)
+│   │   ├── lib/            formatting, labels, theme, hooks
+│   │   └── pages/          one file per screen
+│   ├── nginx.conf          SPA fallback + API reverse proxy
+│   └── Dockerfile
 ├── database/init/           PostgreSQL init scripts
 ├── docker/                  shared container assets
 ├── nginx/                   reverse proxy config           (Phase 6)
