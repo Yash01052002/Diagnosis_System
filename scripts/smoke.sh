@@ -334,6 +334,55 @@ check "DELETE /knowledge-base/documents/{id} (viewer)" 403 "$(status -X DELETE "
 check "DELETE /knowledge-base/documents/{id} (admin)" 204 "$(status -X DELETE "${API}/knowledge-base/documents/${DOC_ID}" \
   -H "Authorization: Bearer ${ACCESS}")"
 
+echo "── Analytics & export (Phase 5) ────────────────────────"
+check "GET /analytics/summary" 200 "$(status "${API}/analytics/summary" \
+  -H "Authorization: Bearer ${ACCESS}")"
+echo "        crashes=$(field "['crashes']['total']") health=$(field "['device_health_score']") diagnoses=$(field "['diagnoses_total']")"
+check "GET /analytics/summary (viewer)" 200 "$(status "${API}/analytics/summary" \
+  -H "Authorization: Bearer ${VIEWER_ACCESS}")"
+check "GET /analytics/summary (anon)" 401 "$(status "${API}/analytics/summary")"
+check "GET /analytics/crash-trend" 200 "$(status "${API}/analytics/crash-trend?days=14" \
+  -H "Authorization: Bearer ${ACCESS}")"
+echo "        trend points=$(python3 -c "import json;print(len(json.load(open('${BODY}'))['points']))" 2>/dev/null)"
+check "GET /analytics/fault-distribution" 200 "$(status "${API}/analytics/fault-distribution" \
+  -H "Authorization: Bearer ${ACCESS}")"
+check "GET /analytics/firmware-comparison" 200 "$(status "${API}/analytics/firmware-comparison" \
+  -H "Authorization: Bearer ${ACCESS}")"
+check "GET /analytics/device-reliability" 200 "$(status "${API}/analytics/device-reliability" \
+  -H "Authorization: Bearer ${ACCESS}")"
+check "GET /analytics/confidence-distribution" 200 "$(status "${API}/analytics/confidence-distribution" \
+  -H "Authorization: Bearer ${ACCESS}")"
+
+CSV_CODE="$(curl -s -o "${BODY}" -w '%{http_code}' "${API}/export/crashes.csv" -H "Authorization: Bearer ${ACCESS}")"
+check "GET /export/crashes.csv" 200 "${CSV_CODE}"
+head -1 "${BODY}" | grep -q "^id,occurred_at," && echo "        CSV header OK" || echo "        CSV header missing"
+PDF_CODE="$(curl -s -o "${BODY}" -w '%{http_code}' "${API}/export/analytics.pdf" -H "Authorization: Bearer ${ACCESS}")"
+check "GET /export/analytics.pdf" 200 "${PDF_CODE}"
+head -c 5 "${BODY}" | grep -q "%PDF-" && echo "        PDF magic OK" || echo "        PDF magic missing"
+
+echo "── Notifications & alerts (Phase 5) ────────────────────"
+# The critical HardFault crashes submitted earlier should have alerted the admin.
+check "GET /notifications/unread-count" 200 "$(status "${API}/notifications/unread-count" \
+  -H "Authorization: Bearer ${ACCESS}")"
+echo "        unread=$(field "['count']")"
+check "GET /notifications" 200 "$(status "${API}/notifications" \
+  -H "Authorization: Bearer ${ACCESS}")"
+NOTIF_ID="$(field "['items'][0]['id']")"
+if [[ -n "${NOTIF_ID}" ]]; then
+  check "POST /notifications/{id}/read" 200 "$(status -X POST "${API}/notifications/${NOTIF_ID}/read" \
+    -H "Authorization: Bearer ${ACCESS}")"
+fi
+check "POST /notifications/read-all" 200 "$(status -X POST "${API}/notifications/read-all" \
+  -H "Authorization: Bearer ${ACCESS}")"
+check "GET /notifications/settings (admin)" 200 "$(status "${API}/notifications/settings" \
+  -H "Authorization: Bearer ${ACCESS}")"
+check "GET /notifications/settings (viewer)" 403 "$(status "${API}/notifications/settings" \
+  -H "Authorization: Bearer ${VIEWER_ACCESS}")"
+check "PATCH /notifications/settings (admin)" 200 "$(status -X PATCH "${API}/notifications/settings" \
+  -H "Authorization: Bearer ${ACCESS}" -H 'Content-Type: application/json' \
+  -d '{"min_severity":"high","email_enabled":false}')"
+echo "        min_severity now $(field "['min_severity']")"
+
 echo "── Cleanup ─────────────────────────────────────────────"
 check "DELETE api-key" 204 "$(status -X DELETE "${API}/devices/${DEVICE_UUID}/api-keys/${KEY_ID}" \
   -H "Authorization: Bearer ${ACCESS}")"

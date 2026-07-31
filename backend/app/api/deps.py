@@ -21,6 +21,7 @@ from app.core.security import TokenType, decode_token
 from app.db.session import get_db
 from app.models.device import Device
 from app.models.user import RoleName, User
+from app.repositories.analytics import AnalyticsRepository
 from app.repositories.audit_log import AuditLogRepository
 from app.repositories.build import BuildSymbolRepository, FirmwareBuildRepository
 from app.repositories.crash import CrashReportRepository
@@ -32,6 +33,7 @@ from app.repositories.device import (
 )
 from app.repositories.diagnosis import AiDiagnosisRepository
 from app.repositories.document import DocumentChunkRepository, DocumentRepository
+from app.repositories.notification import AlertSettingsRepository, NotificationRepository
 from app.repositories.user import (
     PasswordResetTokenRepository,
     RefreshTokenRepository,
@@ -42,6 +44,7 @@ from app.schemas.common import PaginationParams
 from app.services.ai.embeddings import get_embedding_provider
 from app.services.ai.llm import get_llm_provider
 from app.services.ai.vector_store import get_vector_store
+from app.services.analytics import AnalyticsService
 from app.services.audit import AuditService
 from app.services.auth import AuthService, RequestContext
 from app.services.build import BuildService
@@ -51,6 +54,7 @@ from app.services.device import DeviceService
 from app.services.diagnosis import DiagnosisService
 from app.services.email import EmailSender, get_email_sender
 from app.services.knowledge_base import KnowledgeBaseService
+from app.services.notifications import NotificationService
 from app.services.symbolication import SymbolicationService
 from app.services.user import UserService
 
@@ -143,6 +147,18 @@ def get_document_chunk_repository(session: SessionDep) -> DocumentChunkRepositor
 
 def get_diagnosis_repository(session: SessionDep) -> AiDiagnosisRepository:
     return AiDiagnosisRepository(session)
+
+
+def get_analytics_repository(session: SessionDep) -> AnalyticsRepository:
+    return AnalyticsRepository(session)
+
+
+def get_notification_repository(session: SessionDep) -> NotificationRepository:
+    return NotificationRepository(session)
+
+
+def get_alert_settings_repository(session: SessionDep) -> AlertSettingsRepository:
+    return AlertSettingsRepository(session)
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +265,28 @@ def get_symbolication_service(
     )
 
 
+def get_notification_service(
+    session: SessionDep,
+    settings: SettingsDep,
+    notifications: Annotated[NotificationRepository, Depends(get_notification_repository)],
+    alert_settings: Annotated[
+        AlertSettingsRepository, Depends(get_alert_settings_repository)
+    ],
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+    email_sender: Annotated[EmailSender, Depends(get_email_service)],
+    audit: Annotated[AuditService, Depends(get_audit_service)],
+) -> NotificationService:
+    return NotificationService(
+        session=session,
+        notifications=notifications,
+        alert_settings=alert_settings,
+        users=users,
+        email_sender=email_sender,
+        audit=audit,
+        settings=settings,
+    )
+
+
 def get_crash_service(
     session: SessionDep,
     crashes: Annotated[CrashReportRepository, Depends(get_crash_repository)],
@@ -256,6 +294,7 @@ def get_crash_service(
     audit: Annotated[AuditService, Depends(get_audit_service)],
     parser: Annotated[CrashParser, Depends(get_crash_parser)],
     symbolication: Annotated[SymbolicationService, Depends(get_symbolication_service)],
+    notifications: Annotated[NotificationService, Depends(get_notification_service)],
 ) -> CrashService:
     return CrashService(
         session=session,
@@ -264,6 +303,7 @@ def get_crash_service(
         audit=audit,
         parser=parser,
         symbolication=symbolication,
+        notifications=notifications,
     )
 
 
@@ -307,7 +347,16 @@ def get_diagnosis_service(
     )
 
 
+def get_analytics_service(
+    settings: SettingsDep,
+    analytics: Annotated[AnalyticsRepository, Depends(get_analytics_repository)],
+) -> AnalyticsService:
+    return AnalyticsService(analytics=analytics, settings=settings)
+
+
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+AnalyticsServiceDep = Annotated[AnalyticsService, Depends(get_analytics_service)]
+NotificationServiceDep = Annotated[NotificationService, Depends(get_notification_service)]
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 AuditServiceDep = Annotated[AuditService, Depends(get_audit_service)]
 DeviceServiceDep = Annotated[DeviceService, Depends(get_device_service)]

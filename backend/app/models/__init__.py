@@ -17,6 +17,12 @@ from app.models.document import (
     DocumentSourceType,
     DocumentStatus,
 )
+from app.models.notification import (
+    AlertSettings,
+    Notification,
+    NotificationCategory,
+    NotificationLevel,
+)
 from app.models.user import (
     PasswordResetToken,
     RefreshToken,
@@ -49,6 +55,10 @@ __all__ = [
     "DeviceStatus",
     "FaultType",
     "FirmwareBuild",
+    "AlertSettings",
+    "Notification",
+    "NotificationCategory",
+    "NotificationLevel",
     "PasswordResetToken",
     "RefreshToken",
     "Role",

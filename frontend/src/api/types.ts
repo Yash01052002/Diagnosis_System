@@ -336,3 +336,117 @@ export interface Diagnosis {
   created_at: string;
   requested_by?: UserSummary | null;
 }
+
+// ---------------------------------------------------------------------------
+// Analytics (Phase 5)
+// ---------------------------------------------------------------------------
+export interface CountItem {
+  key: string;
+  count: number;
+}
+
+export interface RootCause {
+  id: string;
+  title: string;
+  fault_type: FaultType;
+  severity: CrashSeverity;
+  status: CrashGroupStatus;
+  occurrence_count: number;
+  device_count: number;
+  top_function?: string | null;
+}
+
+export interface DashboardSummary {
+  devices: { total: number; active: number; online: number };
+  crashes: {
+    total: number;
+    today: number;
+    last_7d: number;
+    open: number;
+    critical_open: number;
+  };
+  diagnoses_total: number;
+  documents_total: number;
+  device_health_score: number;
+  by_fault_type: CountItem[];
+  by_severity: CountItem[];
+  top_root_causes: RootCause[];
+  generated_at: string;
+}
+
+export interface TrendPoint {
+  date: string;
+  count: number;
+  critical: number;
+}
+
+export interface CrashTrend {
+  days: number;
+  points: TrendPoint[];
+  total: number;
+}
+
+export interface FaultDistribution {
+  by_fault_type: CountItem[];
+  by_severity: CountItem[];
+  by_status: CountItem[];
+  total: number;
+}
+
+export interface FirmwareStat {
+  firmware_version: string;
+  crashes: number;
+  devices: number;
+}
+
+export interface FirmwareComparison {
+  firmwares: FirmwareStat[];
+}
+
+export interface DeviceReliability {
+  device_id: string;
+  device_identifier: string;
+  hardware_model: string;
+  crashes: number;
+  last_crash_at?: string | null;
+  mtbf_hours?: number | null;
+}
+
+export interface DeviceReliabilityReport {
+  fleet_mtbf_hours?: number | null;
+  devices: DeviceReliability[];
+}
+
+export interface ConfidenceDistribution {
+  by_label: CountItem[];
+  by_score_bucket: CountItem[];
+  total: number;
+  uncertain: number;
+  average_score?: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Notifications & alerts (Phase 5)
+// ---------------------------------------------------------------------------
+export type NotificationLevel = "info" | "warning" | "critical";
+
+export interface AppNotification {
+  id: string;
+  level: NotificationLevel;
+  category: string;
+  title: string;
+  body: string;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  read_at?: string | null;
+  meta?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AlertSettings {
+  enabled: boolean;
+  email_enabled: boolean;
+  min_severity: CrashSeverity;
+  recipient_roles: string[];
+  notify_on_regression: boolean;
+}

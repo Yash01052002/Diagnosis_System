@@ -18,7 +18,7 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  if (user) return <Navigate to="/devices" replace />;
+  if (user) return <Navigate to="/dashboard" replace />;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,7 +37,7 @@ export function RegisterPage() {
       });
       // New accounts get the viewer role; sign straight in.
       await login(email, password);
-      navigate("/devices", { replace: true });
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(errorMessage(err));
     } finally {

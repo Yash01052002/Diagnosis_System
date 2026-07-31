@@ -10,8 +10,8 @@ sample requests and a Docker Compose stack that starts.
 | 2.5 | Crash Analysis Engine (ELF/MAP, symbolization) | ✅ Complete |
 | 3 | AI Diagnosis & RAG Knowledge Base | ✅ Complete |
 | 4 | Frontend Application | ✅ Complete |
-| 5 | Dashboard, Analytics, Export & Notifications | ⏳ Next |
-| 6 | Production Hardening & CI/CD | ⏸ Planned |
+| 5 | Dashboard, Analytics, Export & Notifications | ✅ Complete |
+| 6 | Production Hardening & CI/CD | ⏳ Next |
 
 ---
 
@@ -156,13 +156,39 @@ Details: [`architecture/phase-4.md`](architecture/phase-4.md).
 
 ---
 
-## Phase 5 — Dashboard, Analytics, Export & Notifications
+## Phase 5 — Dashboard, Analytics, Export & Notifications ✅
 
-Dashboard tiles (total/online devices, crashes today, fault-type counts, AI
-diagnoses, device health score, most common root causes). Charts: crash trend,
-crash frequency, fault distribution, firmware comparison, device reliability,
-AI confidence distribution, MTBF. CSV and PDF export. Email alerts, web
-notifications, configurable alert thresholds, critical-crash escalation.
+**Delivered**
+
+- Analytics layer (`AnalyticsRepository` + `AnalyticsService`) over the existing
+  tables — no new analytics tables. Endpoints: dashboard `summary`,
+  `crash-trend` (gap-filled daily counts + critical split), `fault-distribution`,
+  `firmware-comparison`, `device-reliability` (per-device and fleet MTBF) and
+  `confidence-distribution`. Derived figures (health score, MTBF, trend
+  gap-fill) are defined once in the service; day-bucketing is dialect-aware so
+  the SQLite tests exercise the PostgreSQL code path.
+- **Export**: `/export/crashes.csv` (stdlib `csv`, filtered like the list view,
+  bounded) and `/export/analytics.pdf` (a one-page ReportLab report, imported
+  lazily so the dependency is only needed when a PDF is requested).
+- **Notifications & alerts**: `notifications` + `alert_settings` tables
+  (migration `0005`); per-user inbox (list, unread count, mark read/all).
+  Critical-crash escalation is wired into ingestion as a best-effort collaborator
+  — a crash at or above the configured severity raises one notification per
+  eligible recipient (and an optional email), and never breaks ingestion if it
+  fails. The threshold, recipients and email toggle are an admin-editable,
+  database-stored policy that defaults from config.
+- **Frontend**: a Dashboard (stat tiles, crash-trend chart, distributions, top
+  root causes, CSV/PDF export), an Analytics page (7/30/90-day trend, firmware
+  comparison, reliability table, confidence distribution), and a notification
+  bell with a live unread badge, dropdown, inbox page and admin alert settings.
+  Charts are hand-rolled against the data-viz method — one shared axis, status
+  hues reserved and always labelled, theme-aware validated colours, hover
+  tooltips.
+- 19 new backend tests (404 total) and 6 new frontend tests (26 total); ruff,
+  mypy, ESLint, tsc and both builds clean; migration `0005` parity verified;
+  live smoke covers every Phase 5 endpoint (90 checks).
+
+Details: [`architecture/phase-5.md`](architecture/phase-5.md).
 
 ---
 

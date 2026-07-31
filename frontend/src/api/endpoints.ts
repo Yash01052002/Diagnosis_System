@@ -2,14 +2,22 @@
 // build on these; components can also call them directly (e.g. login).
 import { api } from "./client";
 import type {
+  AlertSettings,
+  AppNotification,
+  ConfidenceDistribution,
   Crash,
   CrashGroup,
   CrashListItem,
+  CrashTrend,
+  DashboardSummary,
   Device,
   DeviceApiKey,
   DeviceApiKeyCreated,
+  DeviceReliabilityReport,
   DeviceStats,
   Diagnosis,
+  FaultDistribution,
+  FirmwareComparison,
   KnowledgeBaseStats,
   KnowledgeDocument,
   LoginResponse,
@@ -19,6 +27,8 @@ import type {
   TokenPair,
   User,
 } from "./types";
+
+type Params = Record<string, string | number | boolean | undefined | null>;
 
 /** Drop empty/undefined query params so they don't hit the URL as "?x=". */
 function clean<T extends object>(params?: T): Partial<T> | undefined {
@@ -243,4 +253,68 @@ export const knowledgeApi = {
 
 export const diagnosesApi = {
   get: (id: string) => api.get<Diagnosis>(`/diagnoses/${id}`).then((r) => r.data),
+};
+
+// ---------------------------------------------------------------------------
+// Analytics (Phase 5)
+// ---------------------------------------------------------------------------
+export const analyticsApi = {
+  summary: () => api.get<DashboardSummary>("/analytics/summary").then((r) => r.data),
+  crashTrend: (days: number) =>
+    api.get<CrashTrend>("/analytics/crash-trend", { params: { days } }).then((r) => r.data),
+  faultDistribution: () =>
+    api.get<FaultDistribution>("/analytics/fault-distribution").then((r) => r.data),
+  firmwareComparison: (limit = 10) =>
+    api
+      .get<FirmwareComparison>("/analytics/firmware-comparison", { params: { limit } })
+      .then((r) => r.data),
+  deviceReliability: (limit = 10) =>
+    api
+      .get<DeviceReliabilityReport>("/analytics/device-reliability", { params: { limit } })
+      .then((r) => r.data),
+  confidenceDistribution: () =>
+    api
+      .get<ConfidenceDistribution>("/analytics/confidence-distribution")
+      .then((r) => r.data),
+};
+
+// ---------------------------------------------------------------------------
+// Notifications & alerts (Phase 5)
+// ---------------------------------------------------------------------------
+export const notificationsApi = {
+  list: (params: { unread_only?: boolean; page?: number; page_size?: number }) =>
+    api
+      .get<Page<AppNotification>>("/notifications", { params: clean(params) })
+      .then((r) => r.data),
+  unreadCount: () =>
+    api.get<{ count: number }>("/notifications/unread-count").then((r) => r.data.count),
+  markRead: (id: string) =>
+    api.post<AppNotification>(`/notifications/${id}/read`).then((r) => r.data),
+  markAllRead: () => api.post("/notifications/read-all").then((r) => r.data),
+  getSettings: () =>
+    api.get<AlertSettings>("/notifications/settings").then((r) => r.data),
+  updateSettings: (body: Partial<AlertSettings>) =>
+    api.patch<AlertSettings>("/notifications/settings", body).then((r) => r.data),
+};
+
+// ---------------------------------------------------------------------------
+// Export (Phase 5) — returns blobs for download
+// ---------------------------------------------------------------------------
+export const exportApi = {
+  crashesCsvUrl: "/export/crashes.csv",
+  analyticsPdfUrl: "/export/analytics.pdf",
+  download: async (path: string, params?: Params) => {
+    const res = await api.get(path, { params: clean(params), responseType: "blob" });
+    const disposition = res.headers["content-disposition"] as string | undefined;
+    const match = disposition?.match(/filename="?([^"]+)"?/);
+    const filename = match?.[1] ?? path.split("/").pop() ?? "download";
+    const url = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };

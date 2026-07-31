@@ -775,3 +775,112 @@ OLLAMA_BASE_URL=http://localhost:11434
 The `/knowledge-base/stats` response reports which providers are live. Note
 that switching the embedding provider means existing documents must be
 re-indexed under the new model's vectors before they are retrievable again.
+
+---
+
+# Phase 5 — Analytics, Export & Notifications
+
+## 31. Dashboard summary
+
+```bash
+# One round-trip for the whole dashboard (viewer)
+curl -s "http://localhost:8000/api/v1/analytics/summary" \
+  -H "Authorization: Bearer $ACCESS" | jq
+```
+
+```json
+{
+  "devices": { "total": 213, "active": 201, "online": 178 },
+  "crashes": { "total": 4821, "today": 12, "last_7d": 96, "open": 340, "critical_open": 7 },
+  "diagnoses_total": 512,
+  "documents_total": 24,
+  "device_health_score": 97,
+  "by_fault_type": [{ "key": "hard_fault", "count": 2103 }],
+  "by_severity": [{ "key": "critical", "count": 402 }],
+  "top_root_causes": [
+    { "id": "…", "title": "hard fault in vTaskDelay", "occurrence_count": 847, "severity": "critical" }
+  ],
+  "generated_at": "2026-07-31T09:00:00Z"
+}
+```
+
+The **health score** is the share of devices with no open critical crash.
+
+## 32. Trends and distributions
+
+```bash
+# Daily crash counts (with a critical split), gap-filled across the window
+curl -s "http://localhost:8000/api/v1/analytics/crash-trend?days=30" \
+  -H "Authorization: Bearer $ACCESS" | jq '.points[-1]'
+# → { "date": "2026-07-31", "count": 12, "critical": 2 }
+
+curl -s "http://localhost:8000/api/v1/analytics/fault-distribution" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/analytics/firmware-comparison?limit=10" -H "Authorization: Bearer $ACCESS" | jq
+curl -s "http://localhost:8000/api/v1/analytics/confidence-distribution" -H "Authorization: Bearer $ACCESS" | jq
+```
+
+## 33. Device reliability (MTBF)
+
+```bash
+curl -s "http://localhost:8000/api/v1/analytics/device-reliability?limit=10" \
+  -H "Authorization: Bearer $ACCESS" | jq
+```
+
+```json
+{
+  "fleet_mtbf_hours": 36.4,
+  "devices": [
+    { "device_identifier": "STM32-F4-0001", "crashes": 42, "mtbf_hours": 18.7, "last_crash_at": "…" }
+  ]
+}
+```
+
+`mtbf_hours` is `null` for a device with a single crash — one crash gives no
+interval to average.
+
+## 34. Export CSV and PDF
+
+```bash
+# Crash history as CSV (filtered exactly like the list view)
+curl -s "http://localhost:8000/api/v1/export/crashes.csv?severity=critical" \
+  -H "Authorization: Bearer $ACCESS" -o crashes.csv
+head -1 crashes.csv
+# → id,occurred_at,received_at,device_id,serial_number,…
+
+# One-page analytics report as PDF
+curl -s "http://localhost:8000/api/v1/export/analytics.pdf" \
+  -H "Authorization: Bearer $ACCESS" -o analytics.pdf
+file analytics.pdf   # → PDF document
+```
+
+## 35. Notifications
+
+A critical crash raises an alert for every user holding an alert role — no
+polling of the crash list required.
+
+```bash
+# The bell badge
+curl -s "http://localhost:8000/api/v1/notifications/unread-count" -H "Authorization: Bearer $ACCESS" | jq
+# → { "count": 3 }
+
+# Your inbox, newest first
+curl -s "http://localhost:8000/api/v1/notifications" -H "Authorization: Bearer $ACCESS" | jq '.items[0]'
+
+# Mark one / all read
+curl -s -X POST "http://localhost:8000/api/v1/notifications/$NOTIFICATION_ID/read" -H "Authorization: Bearer $ACCESS" | jq
+curl -s -X POST "http://localhost:8000/api/v1/notifications/read-all" -H "Authorization: Bearer $ACCESS" | jq
+```
+
+## 36. Alert settings (admin)
+
+```bash
+curl -s "http://localhost:8000/api/v1/notifications/settings" -H "Authorization: Bearer $ACCESS" | jq
+
+# Lower the threshold and turn on email alerts
+curl -s -X PATCH "http://localhost:8000/api/v1/notifications/settings" \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{"min_severity": "high", "email_enabled": true, "recipient_roles": ["admin", "engineer"]}' | jq
+```
+
+Severities are ordered `low < medium < high < critical`; an alert fires when a
+crash lands at or above `min_severity`.

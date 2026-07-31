@@ -483,3 +483,70 @@ Authorization: Bearer {{accessToken}}
 ### One diagnosis with its sources and provenance (viewer)
 GET {{api}}/diagnoses/{{diagnosisId}}
 Authorization: Bearer {{accessToken}}
+
+###############################################################################
+# Phase 5 — Analytics, Export & Notifications
+###############################################################################
+
+### Dashboard summary (viewer)
+GET {{api}}/analytics/summary
+Authorization: Bearer {{accessToken}}
+
+### Crash trend over 30 days
+GET {{api}}/analytics/crash-trend?days=30
+Authorization: Bearer {{accessToken}}
+
+### Fault / severity / status distribution
+GET {{api}}/analytics/fault-distribution
+Authorization: Bearer {{accessToken}}
+
+### Crashes by firmware version
+GET {{api}}/analytics/firmware-comparison?limit=10
+Authorization: Bearer {{accessToken}}
+
+### Device reliability and MTBF
+GET {{api}}/analytics/device-reliability?limit=10
+Authorization: Bearer {{accessToken}}
+
+### AI diagnosis confidence distribution
+GET {{api}}/analytics/confidence-distribution
+Authorization: Bearer {{accessToken}}
+
+### Export crash history as CSV
+GET {{api}}/export/crashes.csv?severity=critical
+Authorization: Bearer {{accessToken}}
+
+### Export the analytics report as PDF
+GET {{api}}/export/analytics.pdf
+Authorization: Bearer {{accessToken}}
+
+### Your notifications
+GET {{api}}/notifications
+Authorization: Bearer {{accessToken}}
+
+### Unread count (bell badge)
+GET {{api}}/notifications/unread-count
+Authorization: Bearer {{accessToken}}
+
+### Mark one notification read
+POST {{api}}/notifications/{{notificationId}}/read
+Authorization: Bearer {{accessToken}}
+
+### Mark all notifications read
+POST {{api}}/notifications/read-all
+Authorization: Bearer {{accessToken}}
+
+### Get alert settings (admin)
+GET {{api}}/notifications/settings
+Authorization: Bearer {{accessToken}}
+
+### Update alert settings (admin)
+PATCH {{api}}/notifications/settings
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "min_severity": "high",
+  "email_enabled": true,
+  "recipient_roles": ["admin", "engineer"]
+}
