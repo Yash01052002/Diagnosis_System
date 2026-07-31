@@ -1,6 +1,9 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./AppShell";
 import { RequireAuth, RequireRole } from "./routes";
+import { DashboardPage } from "../pages/DashboardPage";
+import { AnalyticsPage } from "../pages/AnalyticsPage";
+import { NotificationsPage } from "../pages/NotificationsPage";
 import { LoginPage } from "../pages/LoginPage";
 import { RegisterPage } from "../pages/RegisterPage";
 import { ForgotPasswordPage } from "../pages/ForgotPasswordPage";
@@ -33,7 +36,10 @@ export function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="/devices" replace />} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/devices" element={<DevicesPage />} />
         <Route path="/devices/:id" element={<DeviceDetailPage />} />
         <Route path="/crashes" element={<CrashesPage />} />

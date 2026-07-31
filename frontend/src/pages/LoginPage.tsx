@@ -20,7 +20,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const from = (location.state as LocationState | null)?.from?.pathname ?? "/devices";
+  const from = (location.state as LocationState | null)?.from?.pathname ?? "/dashboard";
   if (user) return <Navigate to={from} replace />;
 
   async function onSubmit(e: React.FormEvent) {

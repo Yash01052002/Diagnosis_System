@@ -6,9 +6,12 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from app.services.notifications import NotificationService
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging import get_logger
@@ -50,6 +53,7 @@ class CrashService:
         audit: AuditService,
         parser: CrashParser,
         symbolication: SymbolicationService | None = None,
+        notifications: NotificationService | None = None,
     ) -> None:
         self.session = session
         self.crashes = crashes
@@ -58,6 +62,8 @@ class CrashService:
         self.parser = parser
         #: Optional so the ingestion path can be tested without a symbol store.
         self.symbolication = symbolication
+        #: Optional so ingestion can run without the alerting stack wired in.
+        self.notifications = notifications
 
     # ------------------------------------------------------------------
     # Ingestion
@@ -174,6 +180,17 @@ class CrashService:
                     "crash.symbolication_failed",
                     crash_id=str(report.id),
                     error=str(exc),
+                )
+                await self.session.rollback()
+
+        # Alert escalation is best-effort: a critical crash should page someone,
+        # but a failure here must never lose the report that is already stored.
+        if self.notifications is not None:
+            try:
+                await self.notifications.alert_for_crash(report, target)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "crash.alert_failed", crash_id=str(report.id), error=str(exc)
                 )
                 await self.session.rollback()
 

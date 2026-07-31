@@ -7,6 +7,7 @@ phases; versioning is handled by mounting this router under ``/api/v1``.
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    analytics,
     audit,
     auth,
     builds,
@@ -14,7 +15,9 @@ from app.api.v1.endpoints import (
     crashes,
     devices,
     diagnoses,
+    export,
     knowledge,
+    notifications,
     users,
 )
 
@@ -27,6 +30,9 @@ api_router.include_router(crash_groups.router)
 api_router.include_router(builds.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(diagnoses.router)
+api_router.include_router(analytics.router)
+api_router.include_router(export.router)
+api_router.include_router(notifications.router)
 api_router.include_router(audit.router)
 
 __all__ = ["api_router"]

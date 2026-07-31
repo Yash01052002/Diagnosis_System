@@ -12,16 +12,16 @@ something an engineer can act on.**
 > The firmware side is a separate module. This repository is the web platform:
 > backend, AI service, frontend and deployment.
 
-[![Phase](https://img.shields.io/badge/phase-4%20of%206-blue)]()
-[![Backend tests](https://img.shields.io/badge/backend%20tests-385%20passing-brightgreen)]()
-[![Frontend tests](https://img.shields.io/badge/frontend%20tests-20%20passing-brightgreen)]()
+[![Phase](https://img.shields.io/badge/phase-5%20of%206-blue)]()
+[![Backend tests](https://img.shields.io/badge/backend%20tests-404%20passing-brightgreen)]()
+[![Frontend tests](https://img.shields.io/badge/frontend%20tests-26%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![React](https://img.shields.io/badge/react-19-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
 ---
 
-## Current status — Phase 4 complete
+## Current status — Phase 5 complete
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -29,8 +29,8 @@ something an engineer can act on.**
 | 2 | Devices & crash report API, crash parser | ✅ Complete |
 | 2.5 | Crash analysis engine (ELF/MAP, symbolization, signatures) | ✅ Complete |
 | 3 | AI diagnosis & RAG knowledge base | ✅ Complete |
-| **4** | Frontend application (React SPA) | ✅ **Complete** |
-| 5 | Dashboard, analytics, export, notifications | ⏸ Planned |
+| 4 | Frontend application (React SPA) | ✅ Complete |
+| **5** | Dashboard, analytics, export & notifications | ✅ **Complete** |
 | 6 | Production hardening & CI/CD | ⏸ Planned |
 
 Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
@@ -91,6 +91,16 @@ Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
   deterministic offline default (template LLM + hashing embeddings + database
   vector store) that needs no API key and no extra services
 
+**Analytics, export & alerts** *(Phase 5)*
+- Dashboard: device health score, crashes today/open/critical, a crash-trend
+  chart, fault/severity distributions and the top root causes
+- Analytics: crash trend (7/30/90 days), firmware comparison, per-device and
+  fleet **MTBF**, and AI-confidence distribution
+- CSV export of crash history and a one-page PDF analytics report
+- Critical-crash **alerting** — an in-app notification (and optional email) per
+  eligible recipient, with an admin-tunable threshold, wired into ingestion
+  without ever risking the crash record
+
 **Web application** *(Phase 4)*
 - React 19 + TypeScript SPA over the whole API, role-aware throughout
   (`admin` > `engineer` > `viewer`) in both routing and controls
@@ -146,8 +156,9 @@ reverse-proxies `/api` to the backend so the two share an origin.
 Details: [`phase-1`](docs/architecture/phase-1.md),
 [`phase-2`](docs/architecture/phase-2.md),
 [`phase-2.5`](docs/architecture/phase-2.5.md),
-[`phase-3`](docs/architecture/phase-3.md) and
-[`phase-4`](docs/architecture/phase-4.md).
+[`phase-3`](docs/architecture/phase-3.md),
+[`phase-4`](docs/architecture/phase-4.md) and
+[`phase-5`](docs/architecture/phase-5.md).
 
 ---
 
@@ -157,6 +168,7 @@ Details: [`phase-1`](docs/architecture/phase-1.md),
 |---|---|
 | Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), Alembic |
 | Crash analysis | pyelftools (in-process ELF/DWARF), optional `addr2line` |
+| Analytics & export *(Phase 5)* | SQLAlchemy aggregates (dialect-portable), stdlib CSV, ReportLab PDF |
 | Database | PostgreSQL 16 |
 | Cache / queue | Redis 7, Celery |
 | Auth | JWT (python-jose), bcrypt (passlib) |
@@ -353,6 +365,23 @@ Base path `/api/v1`. Interactive docs at `/docs`.
 | GET | `/crashes/{id}/diagnoses` | viewer | Diagnosis history, newest first |
 | GET | `/diagnoses/{id}` | viewer | One diagnosis with sources & provenance |
 
+### Analytics, export & notifications *(Phase 5)*
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/analytics/summary` | viewer | Dashboard totals, health score, distributions, top bugs |
+| GET | `/analytics/crash-trend` | viewer | Daily crash counts (+ critical) over a window |
+| GET | `/analytics/fault-distribution` | viewer | Counts by fault type / severity / status |
+| GET | `/analytics/firmware-comparison` | viewer | Crashes & devices per firmware |
+| GET | `/analytics/device-reliability` | viewer | Per-device and fleet MTBF |
+| GET | `/analytics/confidence-distribution` | viewer | AI diagnosis confidence spread |
+| GET | `/export/crashes.csv` | viewer | Crash history as CSV |
+| GET | `/export/analytics.pdf` | viewer | One-page analytics report (PDF) |
+| GET | `/notifications` | any user | Your notification inbox |
+| GET | `/notifications/unread-count` | any user | Unread badge count |
+| POST | `/notifications/{id}/read` · `/read-all` | any user | Mark read |
+| GET/PATCH | `/notifications/settings` | admin | Alert threshold, recipients, email |
+
 ### Audit & health
 
 | Method | Path | Role | Description |
@@ -431,8 +460,8 @@ cd backend && .venv/bin/python -m pytest tests/unit -v
 cd backend && .venv/bin/python -m pytest --cov=app --cov-report=html
 ```
 
-385 tests run against an in-memory SQLite database with the real schema, so no
-PostgreSQL server is needed:
+**Backend** — 404 tests run against an in-memory SQLite database with the real
+schema, so no PostgreSQL server is needed:
 
 | Suite | Tests | Covers |
 |---|---|---|
@@ -442,20 +471,28 @@ PostgreSQL server is needed:
 | `tests/unit/test_ai_components.py` | 19 | Chunking, hashing embeddings, cosine retrieval, template LLM grounding |
 | `tests/unit/test_security.py` | 15 | bcrypt, JWT signing/expiry/tampering, opaque tokens |
 | `tests/unit/test_schemas.py` | 15 | Password policy, pagination arithmetic |
+| `tests/unit/test_analytics_logic.py` | 3 | MTBF derivation edge cases |
 | `tests/integration/test_crashes_api.py` | 37 | Ingestion auth, parsing, duplicates, history, triage, cascade |
 | `tests/integration/test_devices_api.py` | 36 | Device CRUD, RBAC, tags, search, API keys, heartbeat |
 | `tests/integration/test_users_api.py` | 17 | RBAC, search, role changes, self-service guards |
 | `tests/integration/test_symbolication.py` | 16 | End-to-end symbolization, grouping, degradation, regression |
 | `tests/integration/test_knowledge_base_api.py` | 13 | Ingestion, dedup, RBAC, semantic search, relevance floor, deletion |
 | `tests/integration/test_builds_api.py` | 13 | Build upload, indexing, replace, RBAC, deletion |
+| `tests/integration/test_analytics_api.py` | 7 | Dashboard summary, trend gap-fill, distributions, firmware, MTBF |
+| `tests/integration/test_notifications_api.py` | 6 | Critical-crash alerts, inbox, admin alert settings, RBAC |
 | `tests/integration/test_auth_api.py` | 25 | Registration, login, lockout, rotation, reset, audit |
+| `tests/integration/test_diagnosis_api.py` | 7 | Grounded & ungrounded diagnosis, anti-hallucination, RBAC, history |
+| `tests/integration/test_export_api.py` | 3 | CSV header/rows, PDF magic, RBAC |
 | `tests/integration/test_health_api.py` | 9 | Probes, error envelope, middleware, OpenAPI |
 | `tests/integration/test_init_db.py` | 8 | Idempotent seeding, bootstrap admin validation |
-| `tests/integration/test_diagnosis_api.py` | 7 | Grounded & ungrounded diagnosis, anti-hallucination, RBAC, history |
 
 The suite enables `PRAGMA foreign_keys=ON` for SQLite so `ON DELETE CASCADE`
 behaves as it does on PostgreSQL — without it the tests would pass while the
 same delete orphaned rows in production.
+
+**Frontend** — 26 Vitest tests (formatting, password policy, token store, API
+error unwrapping, chart rendering and colour mapping, login render): run with
+`cd frontend && npm run test`.
 
 ### End-to-end smoke test
 

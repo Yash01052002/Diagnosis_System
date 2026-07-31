@@ -15,8 +15,8 @@ function StatusScreen({
       <div className="text-6xl font-bold text-brand-600">{code}</div>
       <h1 className="text-xl font-semibold">{title}</h1>
       <p className="max-w-md text-sm text-muted">{message}</p>
-      <Link to="/devices">
-        <Button variant="secondary">Back to devices</Button>
+      <Link to="/dashboard">
+        <Button variant="secondary">Back to dashboard</Button>
       </Link>
     </div>
   );

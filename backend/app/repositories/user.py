@@ -45,6 +45,23 @@ class UserRepository(BaseRepository[User]):
         result = await self.session.execute(stmt)
         return int(result.scalar_one()) > 0
 
+    async def list_by_roles(
+        self, roles: Sequence[str], *, active_only: bool = True
+    ) -> list[User]:
+        """Every user holding any of ``roles`` — the alert recipient set."""
+        if not roles:
+            return []
+        stmt = (
+            select(User)
+            .join(User.roles)
+            .where(Role.name.in_(list(roles)))
+            .options(selectinload(User.roles))
+        )
+        if active_only:
+            stmt = stmt.where(User.is_active.is_(True))
+        result = await self.session.execute(stmt)
+        return list(result.scalars().unique().all())
+
     async def search(
         self,
         *,

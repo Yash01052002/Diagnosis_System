@@ -162,6 +162,24 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = 800
     LLM_TIMEOUT_SECONDS: int = 60
 
+    # -- Analytics (Phase 5) ---------------------------------------------
+    #: A device is "online" if it checked in within this many minutes.
+    ANALYTICS_ONLINE_WINDOW_MINUTES: int = 60
+    #: Default window for the crash-trend chart.
+    ANALYTICS_TREND_DAYS: int = 30
+    #: How many top crash groups / rows the dashboard returns.
+    ANALYTICS_TOP_LIMIT: int = 10
+
+    # -- Alerts & notifications (Phase 5) --------------------------------
+    #: Master switch for creating in-app alert notifications on ingest.
+    ALERTS_ENABLED: bool = True
+    #: Also email the alert to eligible recipients.
+    ALERT_EMAIL_ENABLED: bool = False
+    #: Minimum crash severity that raises an alert.
+    ALERT_MIN_SEVERITY: Literal["low", "medium", "high", "critical"] = "critical"
+    #: Roles that receive alerts.
+    ALERT_RECIPIENT_ROLES: list[str] = ["admin", "engineer"]
+
     # -- Frontend --------------------------------------------------------
     FRONTEND_URL: AnyHttpUrl = AnyHttpUrl("http://localhost:5173")
 

@@ -52,6 +52,8 @@ class AuditAction(StrEnum):
 
     DIAGNOSIS_GENERATED = "diagnosis.generated"
 
+    ALERT_SETTINGS_UPDATED = "alert.settings_updated"
+
 
 class AuditLog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """One row per security-relevant event.

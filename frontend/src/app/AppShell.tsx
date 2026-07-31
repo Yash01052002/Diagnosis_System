@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { NotificationBell } from "../components/NotificationBell";
 import { Button } from "../components/Button";
 import { cx } from "../lib/cx";
 import type { RoleName } from "../api/types";
@@ -22,6 +23,8 @@ function Icon({ path }: { path: string }) {
 }
 
 const NAV: NavItem[] = [
+  { to: "/dashboard", label: "Dashboard", icon: <Icon path="M4 13h6V4H4zM14 20h6V4h-6zM4 20h6v-4H4z" /> },
+  { to: "/analytics", label: "Analytics", icon: <Icon path="M4 19V5M4 19h16M8 16v-5M12 16V8M16 16v-3" /> },
   { to: "/devices", label: "Devices", icon: <Icon path="M4 5h16v10H4zM8 19h8M12 15v4" /> },
   { to: "/crashes", label: "Crashes", icon: <Icon path="M12 2v6m0 0l3-3m-3 3L9 5M5 12a7 7 0 1014 0 7 7 0 00-14 0z" /> },
   { to: "/groups", label: "Crash Groups", icon: <Icon path="M4 6h16M4 12h16M4 18h10" /> },
@@ -159,6 +162,7 @@ export function AppShell() {
             </svg>
           </Button>
           <div className="flex-1" />
+          <NotificationBell />
           <ThemeToggle />
           <UserMenu />
         </header>
