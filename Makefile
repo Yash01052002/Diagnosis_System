@@ -2,7 +2,8 @@
 # docker compose so behaviour is identical inside and outside make.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup up down migrate seed serve worker test smoke lint fmt build logs ps clean
+.PHONY: help setup up down migrate seed serve worker test coverage smoke lint fmt build logs ps clean \
+        prod-up prod-down prod-logs backup restore er-diagram loadtest
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -32,6 +33,9 @@ worker: ## Run the Celery worker
 test: ## Run the backend test suite
 	@./scripts/dev.sh test
 
+coverage: ## Run the backend suite with the coverage gate
+	@cd backend && .venv/bin/python -m pytest --cov=app --cov-report=term-missing
+
 smoke: ## Run the end-to-end smoke test against a running API
 	@./scripts/smoke.sh
 
@@ -55,3 +59,25 @@ clean: ## Remove containers, volumes and caches
 	@docker compose down -v
 	@find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 	@rm -rf backend/.pytest_cache backend/.mypy_cache backend/.ruff_cache backend/htmlcov
+
+# -- Production & operations -------------------------------------------------
+prod-up: ## Start the production stack (nginx edge + TLS)
+	@docker compose -f docker-compose.prod.yml up -d --build
+
+prod-down: ## Stop the production stack
+	@docker compose -f docker-compose.prod.yml down
+
+prod-logs: ## Tail the production edge + backend logs
+	@docker compose -f docker-compose.prod.yml logs -f edge backend
+
+backup: ## Back up the database (BACKUP_DIR overridable)
+	@./scripts/backup.sh
+
+restore: ## Restore the database from DUMP=path/to/file.dump
+	@./scripts/restore.sh $(DUMP)
+
+er-diagram: ## Regenerate the Mermaid ER diagram from the models
+	@cd backend && .venv/bin/python scripts/generate_er_diagram.py
+
+loadtest: ## Run the locust load test (needs BASE_URL + DEVICE_API_KEY)
+	@cd backend && locust -f tests/load/locustfile.py --host "$${BASE_URL:-http://localhost:8000}"
