@@ -7,23 +7,41 @@ configuration can be injected and overridden in tests.
 
 from __future__ import annotations
 
+import json
 import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import AnyHttpUrl, BeforeValidator, EmailStr, Field, PostgresDsn, computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 def _split_csv(value: Any) -> Any:
-    """Allow list-typed settings to be provided as comma separated strings."""
-    if isinstance(value, str) and not value.startswith("["):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    return value
+    """Parse a list setting from either a comma-separated string or JSON.
+
+    Both spellings appear in the wild — ``a,b`` is what people write in a
+    ``.env`` by hand, ``["a","b"]`` is what tooling emits — so accept each.
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if text.startswith("["):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # Fall through: a malformed JSON list is reported by the field's
+            # own validation, which gives a better message than a parse error.
+            return value
+    return [item.strip() for item in text.split(",") if item.strip()]
 
 
-CSVList = Annotated[list[str], BeforeValidator(_split_csv)]
+#: A ``list[str]`` setting that accepts CSV or JSON.
+#:
+#: ``NoDecode`` is essential: without it pydantic-settings JSON-decodes complex
+#: fields inside the env/dotenv *source*, before any validator runs, so a plain
+#: ``FOO=a,b`` line raises a parse error and ``_split_csv`` never sees it.
+CSVList = Annotated[list[str], NoDecode, BeforeValidator(_split_csv)]
 
 
 class Settings(BaseSettings):
@@ -178,7 +196,7 @@ class Settings(BaseSettings):
     #: Minimum crash severity that raises an alert.
     ALERT_MIN_SEVERITY: Literal["low", "medium", "high", "critical"] = "critical"
     #: Roles that receive alerts.
-    ALERT_RECIPIENT_ROLES: list[str] = ["admin", "engineer"]
+    ALERT_RECIPIENT_ROLES: CSVList = ["admin", "engineer"]
 
     # -- Frontend --------------------------------------------------------
     FRONTEND_URL: AnyHttpUrl = AnyHttpUrl("http://localhost:5173")
