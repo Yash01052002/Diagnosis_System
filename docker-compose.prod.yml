@@ -1,0 +1,158 @@
+# BlackBox production stack.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Self-contained (not an override): the TLS-terminating nginx edge is the only
+# service that publishes ports; PostgreSQL, Redis, the backend and the SPA are
+# reachable only on the internal network. Everything restarts unless stopped.
+#
+# Before first start:
+#   - copy .env.example to .env and set SECRET_KEY, POSTGRES_PASSWORD and
+#     FIRST_SUPERUSER_PASSWORD (and ENVIRONMENT=production);
+#   - place TLS cert + key at ./nginx/certs/{fullchain,privkey}.pem
+#     (see docs/deployment.md for the Let's Encrypt flow).
+
+name: blackbox-prod
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-blackbox}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-blackbox}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-blackbox} -d ${POSTGRES_DB:-blackbox}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [internal]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+      POSTGRES_SERVER: db
+      REDIS_URL: redis://redis:6379/0
+      ARTIFACT_STORAGE_DIR: /data/artifacts
+    volumes:
+      - artifact_data:/data/artifacts
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks: [internal]
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+      POSTGRES_SERVER: db
+      REDIS_URL: redis://redis:6379/0
+      ARTIFACT_STORAGE_DIR: /data/artifacts
+      RUN_MIGRATIONS: "false"
+      RUN_SEED: "false"
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO"]
+    volumes:
+      - artifact_data:/data/artifacts
+    depends_on:
+      backend: { condition: service_started }
+      redis: { condition: service_healthy }
+    networks: [internal]
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      ENVIRONMENT: production
+      LOG_JSON: "true"
+      POSTGRES_SERVER: db
+      REDIS_URL: redis://redis:6379/0
+      RUN_MIGRATIONS: "false"
+      RUN_SEED: "false"
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=INFO"]
+    depends_on:
+      backend: { condition: service_started }
+      redis: { condition: service_healthy }
+    networks: [internal]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_started }
+    networks: [internal]
+
+  edge:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_started }
+      frontend: { condition: service_started }
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/proxy_common.conf:/etc/nginx/proxy_common.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - certbot_web:/var/www/certbot
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "--no-check-certificate", "https://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks: [internal]
+
+volumes:
+  postgres_data:
+  redis_data:
+  artifact_data:
+  certbot_web:
+
+networks:
+  internal:
+    driver: bridge

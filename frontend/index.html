@@ -6,16 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>BlackBox — Crash Diagnosis</title>
-    <script>
-      // Apply the saved theme before first paint to avoid a flash.
-      (function () {
-        try {
-          var t = localStorage.getItem("blackbox.theme");
-          var dark = t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches);
-          if (dark) document.documentElement.classList.add("dark");
-        } catch (e) {}
-      })();
-    </script>
+    <!-- The theme is applied by src/theme-bootstrap.ts, imported first in
+         main.tsx. Keeping it in the bundle (not an inline <script>) lets the
+         production CSP stay strict: script-src 'self', no 'unsafe-inline'. -->
   </head>
   <body class="h-full">
     <div id="root" class="h-full"></div>

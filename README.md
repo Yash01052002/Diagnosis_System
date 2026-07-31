@@ -12,8 +12,9 @@ something an engineer can act on.**
 > The firmware side is a separate module. This repository is the web platform:
 > backend, AI service, frontend and deployment.
 
-[![Phase](https://img.shields.io/badge/phase-5%20of%206-blue)]()
+[![Phase](https://img.shields.io/badge/phase-6%20of%206%20—%20complete-brightgreen)]()
 [![Backend tests](https://img.shields.io/badge/backend%20tests-404%20passing-brightgreen)]()
+[![Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)]()
 [![Frontend tests](https://img.shields.io/badge/frontend%20tests-26%20passing-brightgreen)]()
 [![Python](https://img.shields.io/badge/python-3.12-blue)]()
 [![React](https://img.shields.io/badge/react-19-blue)]()
@@ -21,7 +22,7 @@ something an engineer can act on.**
 
 ---
 
-## Current status — Phase 5 complete
+## Current status — all phases complete
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -30,8 +31,8 @@ something an engineer can act on.**
 | 2.5 | Crash analysis engine (ELF/MAP, symbolization, signatures) | ✅ Complete |
 | 3 | AI diagnosis & RAG knowledge base | ✅ Complete |
 | 4 | Frontend application (React SPA) | ✅ Complete |
-| **5** | Dashboard, analytics, export & notifications | ✅ **Complete** |
-| 6 | Production hardening & CI/CD | ⏸ Planned |
+| 5 | Dashboard, analytics, export & notifications | ✅ Complete |
+| **6** | Production hardening & CI/CD | ✅ **Complete** |
 
 Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
@@ -90,6 +91,15 @@ Full plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - **Provider-swappable by configuration**: OpenAI, a local Ollama model, or a
   deterministic offline default (template LLM + hashing embeddings + database
   vector store) that needs no API key and no extra services
+
+**Production & CI/CD** *(Phase 6)*
+- GitHub Actions gating every change: backend (ruff, mypy, `pytest --cov` with a
+  78% floor), frontend (tsc, eslint, vitest, build), dependency audit, image build
+- TLS-terminating nginx edge (`docker-compose.prod.yml`) with rate limiting, a
+  strict CSP and HSTS; database and Redis are never exposed to the host
+- Mermaid ER diagram generated from the models, a Locust load profile, and
+  `pg_dump`/`pg_restore` backup scripts with a documented restore runbook
+- A [deployment guide](docs/deployment.md) covering TLS issuance, upgrades and scaling
 
 **Analytics, export & alerts** *(Phase 5)*
 - Dashboard: device health score, crashes today/open/critical, a crash-trend
@@ -157,8 +167,12 @@ Details: [`phase-1`](docs/architecture/phase-1.md),
 [`phase-2`](docs/architecture/phase-2.md),
 [`phase-2.5`](docs/architecture/phase-2.5.md),
 [`phase-3`](docs/architecture/phase-3.md),
-[`phase-4`](docs/architecture/phase-4.md) and
-[`phase-5`](docs/architecture/phase-5.md).
+[`phase-4`](docs/architecture/phase-4.md),
+[`phase-5`](docs/architecture/phase-5.md) and
+[`phase-6`](docs/architecture/phase-6.md). Schema:
+[`er-diagram`](docs/architecture/er-diagram.md). Ops:
+[`deployment`](docs/deployment.md),
+[`backup/restore`](docs/operations/backup-restore.md).
 
 ---
 
@@ -230,6 +244,18 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 
 > Change `FIRST_SUPERUSER_PASSWORD` in `.env` before the first start of any
 > deployment reachable by anyone else.
+
+### Production
+
+A hardened stack — a TLS-terminating nginx edge in front of the API and SPA,
+with PostgreSQL and Redis kept off the host — lives in `docker-compose.prod.yml`:
+
+```bash
+make prod-up      # docker compose -f docker-compose.prod.yml up -d --build
+```
+
+See the [deployment guide](docs/deployment.md) for TLS certificates, upgrades,
+scaling and the [backup/restore runbook](docs/operations/backup-restore.md).
 
 ---
 

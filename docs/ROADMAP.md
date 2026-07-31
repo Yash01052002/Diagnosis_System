@@ -11,7 +11,7 @@ sample requests and a Docker Compose stack that starts.
 | 3 | AI Diagnosis & RAG Knowledge Base | ✅ Complete |
 | 4 | Frontend Application | ✅ Complete |
 | 5 | Dashboard, Analytics, Export & Notifications | ✅ Complete |
-| 6 | Production Hardening & CI/CD | ⏳ Next |
+| 6 | Production Hardening & CI/CD | ✅ Complete |
 
 ---
 
@@ -192,8 +192,39 @@ Details: [`architecture/phase-5.md`](architecture/phase-5.md).
 
 ---
 
-## Phase 6 — Production Hardening & CI/CD
+## Phase 6 — Production Hardening & CI/CD ✅
 
-Nginx reverse proxy with TLS and rate limiting, production Compose file,
-GitHub Actions (lint, type-check, test, build, scan), coverage gates,
-ER diagram generation, load tests, backup/restore runbook, deployment guide.
+**Delivered**
+
+- **CI** (`.github/workflows/ci.yml`): four jobs on every push/PR — backend
+  (ruff, mypy, `pytest --cov` with a coverage gate), frontend (tsc, eslint,
+  vitest, build), security (`pip-audit --strict`, `npm audit`), and a docker
+  image build. Coverage floor `fail_under = 78` in `pyproject.toml` (actual
+  ~82%, with the Celery entrypoints excluded).
+- **Production edge** (`docker-compose.prod.yml` + `nginx/nginx.conf`): a single
+  TLS-terminating nginx front door; PostgreSQL, Redis, the backend and the SPA
+  are internal-only. TLS 1.2/1.3, HSTS, a strict `Content-Security-Policy`
+  (`script-src 'self'` — the SPA's theme bootstrap moved into the bundle to
+  satisfy it), rate limiting (`/api` 20 r/s, `/api/v1/auth/` 5 r/min → 429), and
+  the full security-header set as defence in depth.
+- **ER diagram**: `backend/scripts/generate_er_diagram.py` derives a Mermaid ER
+  diagram from `Base.metadata` (19 tables) so [`er-diagram.md`](architecture/er-diagram.md)
+  never drifts from the schema.
+- **Load profile**: a Locust file with device-ingest and engineer-browse user
+  types, kept out of the unit suite.
+- **Operations**: `scripts/backup.sh` / `scripts/restore.sh` (pg_dump/pg_restore,
+  idempotent restore, optional artifact archive), a
+  [backup/restore runbook](operations/backup-restore.md) and a
+  [deployment guide](deployment.md) (TLS issuance, first start, upgrades,
+  scaling). New `make` targets: `prod-up/down/logs`, `backup`, `restore`,
+  `er-diagram`, `loadtest`, `coverage`.
+
+Details: [`architecture/phase-6.md`](architecture/phase-6.md).
+
+---
+
+## The build is complete
+
+All six phases (plus 2.5) are delivered: a production-ready, tested, documented
+crash-diagnosis platform — API, AI, web app, analytics and the operational
+tooling to run it.

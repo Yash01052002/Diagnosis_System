@@ -63,6 +63,20 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers"
 filterwarnings = ["ignore::DeprecationWarning"]
 
+[tool.coverage.run]
+source = ["app"]
+# The Celery entrypoints run out-of-process against a broker, so they are
+# exercised by the worker in production rather than the unit suite; excluding
+# them keeps the coverage gate honest about what the tests actually assert.
+omit = ["app/worker.py"]
+
+[tool.coverage.report]
+# CI runs `pytest --cov=app`; this floor fails the build if coverage regresses.
+# Current line coverage is ~82% with app/worker.py excluded.
+fail_under = 78
+show_missing = true
+precision = 1
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
