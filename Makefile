@@ -2,8 +2,8 @@
 # docker compose so behaviour is identical inside and outside make.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup up down migrate seed serve worker test coverage smoke lint fmt build logs ps clean \
-        prod-up prod-down prod-logs backup restore er-diagram loadtest
+.PHONY: help setup up down migrate seed seed-demo serve worker test coverage smoke lint fmt \
+        build logs ps clean prod-up prod-down prod-logs backup restore er-diagram loadtest
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -23,6 +23,9 @@ migrate: ## Apply database migrations
 
 seed: ## Create default roles and the bootstrap admin
 	@./scripts/dev.sh seed
+
+seed-demo: ## Fill a running API with demo data (devices, crashes, KB, diagnoses)
+	@cd backend && .venv/bin/python ../scripts/seed_demo.py $(ARGS)
 
 serve: ## Run the API with autoreload
 	@./scripts/dev.sh serve

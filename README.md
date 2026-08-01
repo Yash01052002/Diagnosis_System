@@ -245,6 +245,22 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 > Change `FIRST_SUPERUSER_PASSWORD` in `.env` before the first start of any
 > deployment reachable by anyone else.
 
+### Demo data
+
+A fresh install has no devices or crashes, so every screen starts empty. To see
+the dashboard, analytics and alerting with something in them:
+
+```bash
+make seed-demo                                    # against http://localhost:8000
+make seed-demo ARGS="--url http://host:8000 --days 60"
+```
+
+It creates an engineer and a viewer account, six devices with API keys, a month
+of backdated crash history, four knowledge-base documents and a handful of AI
+diagnoses — all through the public API, so the crashes run the real
+ingest → parse → symbolize → group → alert pipeline. Re-running is safe;
+anything that already exists is skipped. Never point it at production.
+
 ### Production
 
 A hardened stack — a TLS-terminating nginx edge in front of the API and SPA,
