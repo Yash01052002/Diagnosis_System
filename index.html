@@ -1,186 +1,112 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="BlackBox — AI-powered STM32 embedded crash diagnosis platform">
-  <title>BlackBox — Installation & Documentation</title>
-  <link rel="stylesheet" href="assets/style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BlackBox — Embedded Crash Intelligence</title>
+<meta name="description" content="AI-powered crash intelligence for STM32 and FreeRTOS firmware.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-<header class="topbar">
-  <a class="brand" href="#top">BLACK<span>BOX</span></a>
-  <nav>
-    <a href="#quick-start">Quick Start</a>
-    <a href="#architecture">Architecture</a>
-    <a href="#testing">Test</a>
-    <a href="#troubleshooting">Troubleshooting</a>
-  </nav>
-  <button id="themeBtn" class="icon-btn" aria-label="Toggle theme">☾</button>
+<div class="grid-bg"></div>
+<header class="nav">
+<a class="brand" href="#top"><span class="logo">B</span><b>BLACK<span>BOX</span></b></a>
+<nav><a href="#features">Product</a><a href="#workflow">Workflow</a><a href="#architecture">Architecture</a><a href="#demo">Demo</a><a href="#install">Install</a></nav>
+<a class="github" href="https://github.com/Yash01052002/Diagnosis_System" target="_blank">GitHub ↗</a>
 </header>
 
 <main id="top">
 <section class="hero">
-  <div class="eyebrow">STM32 · FreeRTOS · Docker · RAG · Ollama</div>
-  <h1>AI-powered crash diagnosis for embedded firmware.</h1>
-  <p>Run BlackBox locally, symbolicate STM32 crashes from ELF files, retrieve engineering knowledge, and diagnose faults with a local Llama 3.1 model.</p>
-  <div class="hero-actions">
-    <a class="btn primary" href="#quick-start">Start installation</a>
-    <a class="btn" href="#testing">Run first fault test</a>
-  </div>
-  <div class="status-grid">
-    <div><b>Local AI</b><span>Ollama + Llama 3.1</span></div>
-    <div><b>Symbolication</b><span>ELF / debug symbols</span></div>
-    <div><b>RAG</b><span>Knowledge-base retrieval</span></div>
-    <div><b>API</b><span>FastAPI + JWT</span></div>
-  </div>
+<div>
+<div class="eyebrow">LOCAL-FIRST · OPEN SOURCE · EMBEDDED AI</div>
+<h1>Crash intelligence for<br><em>embedded firmware.</em></h1>
+<p>BlackBox collects STM32 / FreeRTOS crash data, resolves ELF symbols, retrieves engineering knowledge, and generates an evidence-backed diagnosis with a local Llama 3.1 model.</p>
+<div class="actions"><a class="primary" href="#demo">Explore the demo →</a><a class="secondary" href="#install">Run locally</a></div>
+<div class="proof"><span>✓ No paid LLM required</span><span>✓ Source-level symbolication</span><span>✓ Dockerized stack</span></div>
+</div>
+
+<div class="window">
+<div class="window-bar"><span>● ● ●</span><small>BLACKBOX · CRASH INTELLIGENCE</small><b>● HEALTHY</b></div>
+<div class="dash">
+<aside><strong>B</strong><span>Overview</span><span>Crashes</span><span>Devices</span><span>Builds</span><span>Knowledge</span></aside>
+<div class="dash-main">
+<div class="dash-head"><div><small>CRASH REPORT</small><h3>HardFault in SensorTask</h3></div><i>CRITICAL</i></div>
+<div class="stats"><div><small>DEVICE</small><b>STM32F407VG</b></div><div><small>FIRMWARE</small><b>1.5.0</b></div><div><small>BUILD</small><b>null-pointer-test-003</b></div></div>
+<div class="trace"><header><small>SYMBOLIZED STACK TRACE</small><b>2 / 2 RESOLVED</b></header><div><span>PC</span><code>NullPointerFault</code><small>null_pointer.c:6</small></div><div><span>LR</span><code>SensorTask + 0x8</code><small>null_pointer.c:17</small></div></div>
+<div class="ai"><strong>AI</strong><div><small>OLLAMA · LLAMA 3.1</small><h4>NULL pointer dereference</h4><p>Validate the pointer before writing through it.</p></div><i>LIKELY</i></div>
+</div>
+</div>
+</div>
 </section>
 
-<section class="section" id="quick-start">
-  <div class="section-head">
-    <div><span class="num">01</span><div><h2>Quick Start — Windows</h2><p>Recommended path for reproducing the local development environment.</p></div></div>
-  </div>
+<section class="stack"><span>STM32</span><span>ARM CORTEX-M4</span><span>FREERTOS</span><span>FASTAPI</span><span>POSTGRESQL</span><span>DOCKER</span><span>OLLAMA</span><span>RAG</span></section>
 
-  <div class="notice"><b>Before you begin:</b> BlackBox is a local development/demo system. Do not commit your real API keys, JWTs, or other secrets to GitHub.</div>
+<section id="features" class="section">
+<div class="label">01 · PRODUCT</div>
+<div class="intro"><h2>One place for the entire crash investigation.</h2><p>BlackBox connects raw crash evidence, firmware symbols, engineering knowledge and local AI into one repeatable workflow.</p></div>
+<div class="cards">
+<article><span>01</span><h3>Crash ingestion</h3><p>Capture fault metadata, registers, stack words, firmware identity and device information.</p></article>
+<article><span>02</span><h3>Deep symbolication</h3><p>Resolve PC and LR addresses to functions, source files and line numbers with ELF debug symbols.</p></article>
+<article><span>03</span><h3>Grounded diagnosis</h3><p>Retrieve relevant STM32 and FreeRTOS references before generating the root cause and fix.</p></article>
+<article><span>04</span><h3>Private local AI</h3><p>Run Llama 3.1 through Ollama so crash data can remain on your machine.</p></article>
+<article><span>05</span><h3>Build registry</h3><p>Index ELF/MAP artifacts by firmware and build version for reliable crash matching.</p></article>
+<article><span>06</span><h3>Actionable dashboard</h3><p>Review crashes, devices, symbols, diagnosis history and recommended fixes.</p></article>
+</div>
+</section>
 
-  <article class="step">
-    <div class="step-title"><span>1</span><div><h3>Install Docker Desktop</h3><p>Docker Desktop provides the container runtime used by BlackBox.</p></div></div>
-    <p>Install Docker Desktop for Windows, start it, and make sure the Linux/WSL 2 backend is available.</p>
-    <div class="links"><a href="https://docs.docker.com/desktop/setup/install/windows-install/" target="_blank">Docker Windows installation ↗</a><a href="https://docs.docker.com/desktop/features/wsl/" target="_blank">WSL 2 backend ↗</a></div>
-    <pre><button class="copy">Copy</button><code>docker --version
-docker compose version</code></pre>
-  </article>
+<section id="workflow" class="section dark">
+<div class="label">02 · WORKFLOW</div>
+<div class="intro"><h2>From fault address to engineering answer.</h2><p>Every stage adds context until a raw crash becomes understandable.</p></div>
+<div class="workflow"><div><span>01</span><b>Crash report</b><small>HardFault + registers</small></div><i>→</i><div><span>02</span><b>Build match</b><small>Firmware + build</small></div><i>→</i><div><span>03</span><b>Symbolication</b><small>Address → source</small></div><i>→</i><div><span>04</span><b>RAG retrieval</b><small>Engineering evidence</small></div><i>→</i><div><span>05</span><b>AI diagnosis</b><small>Cause + fix</small></div></div>
+</section>
 
-  <article class="step">
-    <div class="step-title"><span>2</span><div><h3>Install Ollama</h3><p>BlackBox can use local AI instead of a paid cloud API.</p></div></div>
-    <p>Install Ollama for Windows, then open PowerShell:</p>
-    <div class="links"><a href="https://ollama.com/download/windows" target="_blank">Ollama for Windows ↗</a></div>
-    <pre><button class="copy">Copy</button><code>ollama --version
-ollama pull llama3.1
-ollama list</code></pre>
-  </article>
+<section id="architecture" class="section">
+<div class="label">03 · ARCHITECTURE</div>
+<div class="intro"><h2>Designed as a real engineering platform.</h2><p>Not a chatbot wrapper. Each component owns one clear responsibility.</p></div>
+<div class="arch">
+<article><small>EDGE</small><h3>STM32 / FreeRTOS</h3><p>Crash metadata, registers, stack and firmware identity.</p></article>
+<article><small>APPLICATION</small><h3>FastAPI backend</h3><p>JWT auth, APIs, orchestration and device management.</p></article>
+<article><small>DATA</small><h3>PostgreSQL + Redis</h3><p>Crash history, builds, groups and background tasks.</p></article>
+<article><small>ANALYSIS</small><h3>ELF symbolicator</h3><p>Debug symbols, source mapping and frame resolution.</p></article>
+<article><small>KNOWLEDGE</small><h3>RAG knowledge base</h3><p>STM32, Cortex-M and FreeRTOS troubleshooting context.</p></article>
+<article><small>INTELLIGENCE</small><h3>Ollama · Llama 3.1</h3><p>Local reasoning over crash evidence and retrieved knowledge.</p></article>
+</div>
+</section>
 
-  <article class="step">
-    <div class="step-title"><span>3</span><div><h3>Clone BlackBox</h3><p>Replace the repository URL below with your GitHub repository URL.</p></div></div>
-    <pre><button class="copy">Copy</button><code>git clone YOUR_GITHUB_REPOSITORY_URL
-cd YOUR_REPOSITORY_FOLDER</code></pre>
-  </article>
+<section id="demo" class="section dark">
+<div class="label">04 · VALIDATED DEMO</div>
+<div class="demo">
+<div><h2>A real NULL-pointer test, diagnosed end to end.</h2><p>The test firmware intentionally wrote through a NULL pointer. BlackBox matched the correct build, resolved both frames and generated a local AI diagnosis.</p>
+<div class="facts"><div><span>PC</span><b>0x08000000</b><small>NullPointerFault</small></div><div><span>LR</span><b>0x08000030</b><small>SensorTask + 0x8</small></div><div><span>SOURCE</span><b>null_pointer.c</b><small>Line 6</small></div><div><span>PROVIDER</span><b>Ollama</b><small>Llama 3.1</small></div></div></div>
+<aside class="diagnosis"><header><span>AI DIAGNOSIS</span><b>LIKELY</b></header><h3>NULL pointer dereference in SensorTask</h3><p>Review pointer initialization and validate memory access before writing through the pointer at <code>null_pointer.c:6</code>.</p><ul><li>PC resolved to NullPointerFault</li><li>LR resolved to SensorTask + 0x8</li><li>RAG matched STM32 HardFault guidance</li><li>Diagnosis generated locally</li></ul></aside>
+</div>
+</section>
 
-  <article class="step">
-    <div class="step-title"><span>4</span><div><h3>Create your environment file</h3><p>Start from <code>.env.example</code> and keep secrets local.</p></div></div>
-    <pre><button class="copy">Copy</button><code>Copy-Item .env.example .env
-notepad .env</code></pre>
-    <p>For the local Ollama configuration, use:</p>
-    <pre><button class="copy">Copy</button><code>LLM_PROVIDER=ollama
+<section class="metrics"><div><b>100%</b><span>Local AI capable</span></div><div><b>2 / 2</b><span>Frames resolved</span></div><div><b>6+</b><span>Core services</span></div><div><b>₹0</b><span>Paid API required</span></div></section>
+
+<section id="install" class="section">
+<div class="label">05 · QUICK START</div>
+<div class="intro"><h2>Run BlackBox locally.</h2><p>Docker Desktop and Ollama are the only major prerequisites.</p></div>
+<div class="install">
+<article><span>1</span><h3>Install prerequisites</h3><pre><code>docker --version
+ollama --version</code><button>Copy</button></pre></article>
+<article><span>2</span><h3>Pull the model</h3><pre><code>ollama pull llama3.1</code><button>Copy</button></pre></article>
+<article><span>3</span><h3>Clone BlackBox</h3><pre><code>git clone https://github.com/Yash01052002/Diagnosis_System.git
+cd Diagnosis_System</code><button>Copy</button></pre></article>
+<article><span>4</span><h3>Configure Ollama</h3><pre><code>LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://host.docker.internal:11434
-OLLAMA_CHAT_MODEL=llama3.1
-LLM_TIMEOUT_SECONDS=120</code></pre>
-    <div class="notice small"><b>Important:</b> Inside the Docker container, <code>localhost:11434</code> points to the container. On Docker Desktop for Windows, use <code>host.docker.internal:11434</code> to reach Ollama running on Windows.</div>
-  </article>
-
-  <article class="step">
-    <div class="step-title"><span>5</span><div><h3>Start the stack</h3><p>Build and start the services defined by your compose file.</p></div></div>
-    <pre><button class="copy">Copy</button><code>docker compose up -d --build
-docker compose ps</code></pre>
-  </article>
-
-  <article class="step">
-    <div class="step-title"><span>6</span><div><h3>Verify the backend</h3><p>Open the health endpoint and API documentation.</p></div></div>
-    <div class="endpoint-grid">
-      <a href="http://localhost:8000/health">http://localhost:8000/health</a>
-      <a href="http://localhost:8000/docs">http://localhost:8000/docs</a>
-      <a href="http://localhost:3000">http://localhost:3000</a>
-    </div>
-    <pre><button class="copy">Copy</button><code>docker ps
-docker logs blackbox-backend --tail 100</code></pre>
-  </article>
+OLLAMA_CHAT_MODEL=llama3.1</code><button>Copy</button></pre></article>
+<article><span>5</span><h3>Start services</h3><pre><code>docker compose up -d --build</code><button>Copy</button></pre></article>
+<article><span>6</span><h3>Open BlackBox</h3><pre><code>Dashboard: http://localhost:3000
+API Docs:  http://localhost:8000/docs</code><button>Copy</button></pre></article>
+</div>
 </section>
 
-<section class="section" id="architecture">
-  <div class="section-head"><div><span class="num">02</span><h2>How BlackBox works</h2><p>The complete diagnosis pipeline.</p></div></div>
-  <div class="pipeline">
-    <div>Crash report</div><i>→</i><div>Crash ingestion</div><i>→</i><div>ELF symbolication</div><i>→</i><div>RAG retrieval</div><i>→</i><div>Ollama / Llama 3.1</div><i>→</i><div>Diagnosis + fix</div>
-  </div>
-  <div class="cards">
-    <div><h3>Crash ingestion</h3><p>Receives fault metadata, registers, stack data, firmware/build identifiers, and task information.</p></div>
-    <div><h3>Symbolication</h3><p>Uses the indexed ELF/debug symbols to map addresses such as PC and LR to functions and source lines.</p></div>
-    <div><h3>RAG</h3><p>Retrieves relevant STM32/FreeRTOS engineering references from the knowledge base.</p></div>
-    <div><h3>Local AI</h3><p>Llama 3.1 analyzes the crash context and retrieved material without requiring OpenAI API credits.</p></div>
-  </div>
-</section>
-
-<section class="section" id="testing">
-  <div class="section-head"><div><span class="num">03</span><h2>Run the first fault test</h2><p>Use a deliberately faulty ELF to validate symbolication and diagnosis.</p></div></div>
-
-  <article class="step">
-    <div class="step-title"><span>1</span><div><h3>Build the test ELF</h3><p>Example using the ARM GNU toolchain.</p></div></div>
-    <pre><button class="copy">Copy</button><code>arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -nostdlib `
-  "-Wl,-T,linker.ld,-Map=build\null_pointer.map" `
-  "-Wl,--gc-sections" `
-  build\null_pointer.o -o build\null_pointer.elf
-
-arm-none-eabi-nm -n build\null_pointer.elf</code></pre>
-  </article>
-
-  <article class="step">
-    <div class="step-title"><span>2</span><div><h3>Upload the ELF</h3><p>Use Swagger's <code>POST /api/v1/builds</code> endpoint with your JWT.</p></div></div>
-    <pre><button class="copy">Copy</button><code>curl.exe -X POST "http://localhost:8000/api/v1/builds" `
-  -H "Authorization: Bearer $token" `
-  -F "file=@C:\path\to\build\null_pointer.elf" `
-  -F "firmware_version=1.5.0-null-pointer" `
-  -F "build_version=null-pointer-test-001" `
-  -F "hardware_model=STM32F407VG" `
-  -F "notes=BlackBox NULL pointer test"</code></pre>
-  </article>
-
-  <article class="step">
-    <div class="step-title"><span>3</span><div><h3>Submit a crash</h3><p>Register a device first, then submit the crash report with the device API key as required by your API.</p></div></div>
-    <p>Use the Swagger documentation at <code>http://localhost:8000/docs</code> so the exact request schema stays synchronized with the backend.</p>
-  </article>
-
-  <article class="step">
-    <div class="step-title"><span>4</span><div><h3>Symbolicate and diagnose</h3><p>The expected result for the supplied NULL-pointer test is a function/source mapping similar to:</p></div></div>
-    <pre><code>PC → NullPointerFault
-File → null_pointer.c
-Line → 6
-LR → SensorTask+0x8
-
-AI → NULL pointer dereference in SensorTask</code></pre>
-  </article>
-</section>
-
-<section class="section" id="troubleshooting">
-  <div class="section-head"><div><span class="num">04</span><h2>Troubleshooting</h2><p>Common issues from the local Windows setup.</p></div></div>
-
-  <details open><summary>Docker API / daemon is not running</summary><p>Start Docker Desktop and verify the Docker context with <code>docker info</code>. If Docker Desktop is using WSL 2, verify WSL is installed and updated.</p></details>
-  <details><summary>Ollama works from Windows but BlackBox cannot connect</summary><p>Check <code>OLLAMA_BASE_URL</code> inside the backend container. For Ollama running on Windows, use <code>http://host.docker.internal:11434</code>, not <code>http://localhost:11434</code>.</p><pre><button class="copy">Copy</button><code>docker exec blackbox-backend printenv OLLAMA_BASE_URL
-docker exec blackbox-backend python -c "import urllib.request; print(urllib.request.urlopen('http://host.docker.internal:11434/api/tags').read().decode())"</code></pre></details>
-  <details><summary>401 invalid_token</summary><p>Authorize Swagger with a current JWT under the HTTP Bearer security scheme. Do not paste an expired/revoked token. The exact security scheme names can vary with the generated API docs.</p></details>
-  <details><summary>OpenAI 429 / no API credits</summary><p>Use the local Ollama configuration above. BlackBox does not need OpenAI API credits for the local Llama 3.1 path.</p></details>
-  <details><summary>ELF says indexed but symbolication fails</summary><p>Confirm the crash's <code>build_version</code> exactly matches the indexed firmware build and that the uploaded ELF contains the debug information/symbols needed by your symbolicator.</p></details>
-</section>
-
-<section class="section compact">
-  <div class="section-head"><div><span class="num">05</span><h2>Security checklist</h2></div></div>
-  <ul class="checklist">
-    <li>Never commit <code>.env</code> or real API keys.</li>
-    <li>Use <code>.env.example</code> for safe, non-secret configuration examples.</li>
-    <li>Use fresh JWTs for local testing and never publish them.</li>
-    <li>For production, add proper secret management, HTTPS, access controls, backups, rate limits, and monitoring.</li>
-  </ul>
-</section>
-
-<section class="cta">
-  <h2>BlackBox is ready to diagnose.</h2>
-  <p>Start with the local installation, run the NULL-pointer test, then add stack-overflow, buffer-overflow, and invalid-function-pointer test cases.</p>
-  <a class="btn primary" href="#quick-start">Back to installation ↑</a>
-</section>
+<section class="cta"><div><div class="eyebrow">OPEN SOURCE PROJECT</div><h2>Explore BlackBox on GitHub.</h2><p>Review the architecture, run the demo, inspect the APIs or extend the crash-analysis pipeline.</p></div><a class="primary" href="https://github.com/Yash01052002/Diagnosis_System" target="_blank">Open repository ↗</a></section>
 </main>
-
-<footer>
-  <span>BlackBox Documentation</span>
-  <span>Built for local embedded crash diagnosis</span>
-</footer>
+<footer><div class="brand"><span class="logo">B</span><b>BLACK<span>BOX</span></b></div><span>AI-powered embedded crash intelligence.</span><span>Built by Yash Gaidhane.</span></footer>
 <script src="assets/app.js"></script>
-</body>
-</html>
+</body></html>
